@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """
 Defines the classes needed to represent the multiple spectra needed for 
 Doppler imaging in a FITS-compatible manner.
@@ -12,6 +10,19 @@ except:
     import pyfits as fits
 from core import *
 
+def sameDims(arr1, arr2):
+    """
+    Checks that two numpy arrays have the same number of dimensions
+    and the same dimensions
+    """
+    if len(arr1) != len(arr2):
+        return False
+
+    for d1,d2 in zip(arr1.shape, arr2.shape):
+        if d1 != d2:
+            return False
+
+    return True
 
 class Spectra(object):
     """
@@ -47,13 +58,13 @@ class Spectra(object):
         # some checks
         if len(flux.shape) != 2:
             raise DopplerError('Data.__init__: flux must be a 2D array')
-        if flux.shape != ferr.shape:
-            raise DopplerError('Data.__init__: flux and ferr have conflicting array sizes')
-        if flux.shape != wave.shape:
-            raise DopplerError('Data.__init__: flux and ferr have conflicting array sizes')
+        if not sameDims(flux,ferr):
+            raise DopplerError('Data.__init__: flux and ferr are incompatible.')
+        if not sameDims(flux,wave):
+            raise DopplerError('Data.__init__: flux and wave are incompatible')
         if flux.shape[0] != len(time):
             raise DopplerError('Data.__init__: flux and time have conflicting sizes')
-        if flux.shape[0] != len(time):
+        if flux.shape[0] != len(expose):
             raise DopplerError('Data.__init__: flux and expose have conflicting sizes')
 
         self.flux = flux
@@ -131,16 +142,21 @@ if __name__ == '__main__':
     
     # create arrays
     shape  = (10,100)
-    flux   = np.empty(shape)
+    flux   = np.zeros(shape)
     ferr   = 0.1*np.ones_like(flux)
-    wave   = np.empty_like(flux)
+    wave   = np.linspace(490.,510.,shape[1])
     time   = np.linspace(50000.,50000.1,shape[0])
     expose = 0.001*np.ones_like(flux)
     fwhm   = 2.2
-                                                                
+    
+    # manipulate the fluxes to be vaguely interesting 
+    # (gaussian sinusoidally varying in velocity)
+    wave, times = np.meshgrid(wave, time)
+    flux = np.exp(-((wave-500.*(1+200./3e5*np.sin(2.*np.pi*(times-50000.)/0.1)))/2.)**2/2.)
+    print flux
+
     # create the Spectra
     spectra = Spectra(flux,ferr,wave,time,expose,fwhm)
  
     # create the Data
     data = Data(head,spectra)
-
