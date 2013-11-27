@@ -4,10 +4,8 @@ Doppler imaging in a FITS-compatible manner.
 """
 
 import numpy as np
-try:
-    from astropy.io import fits
-except:
-    import pyfits as fits
+from astropy.io import fits
+
 from core import *
 
 def sameDims(arr1, arr2):
@@ -57,7 +55,17 @@ class Spectra(object):
         Creates a Spectra object.
         """
 
-        # some checks
+        # checks
+        if not isinstance(flux, np.array):
+            raise DopplerError('Data.__init__: flux must be a numpy array')
+        if not isinstance(ferr, np.array):
+            raise DopplerError('Data.__init__: ferr must be a numpy array')
+        if not isinstance(wave, np.array):
+            raise DopplerError('Data.__init__: wave must be a numpy array')
+        if not isinstance(time, np.array):
+            raise DopplerError('Data.__init__: time must be a numpy array')
+        if not isinstance(expose, np.array):
+            raise DopplerError('Data.__init__: expose must be a numpy array')
         if len(flux.shape) != 2:
             raise DopplerError('Data.__init__: flux must be a 2D array')
         if not sameDims(flux,ferr):
@@ -135,13 +143,6 @@ class Data(object):
         if not isinstance(head, fits.Header):
             raise DopplerError('Data.__init__: head' +
                                ' must be a fits.Header object')
-        self.head = head.copy()
-        self.head.add_blank('............................')
-        self.head['COMMENT'] = 'This file contains spectroscopic data for Doppler imaging.'
-        self.head['COMMENT'] = 'Fluxes, flux errors and wavelengths are stored in 2D arrays'
-        self.head['COMMENT'] = 'each row of which represents one spectrum.'
-        self.head['COMMENT'] = 'Times and exposure times are stored in 1D arrays.'
-        self.head['HISTORY'] = 'Created from a doppler.Data object'
 
         try:
             for i, spectra in enumerate(data):
@@ -155,6 +156,14 @@ class Data(object):
                 raise DopplerError('Data.__init__: data must be a' +
                                    ' Spectra or a list of Spectra')
             self.data = [data,]
+
+        self.head = head.copy()
+        self.head.add_blank('............................')
+        self.head['COMMENT'] = 'This file contains spectroscopic data for Doppler imaging.'
+        self.head['COMMENT'] = 'Fluxes, flux errors and wavelengths are stored in 2D arrays'
+        self.head['COMMENT'] = 'each row of which represents one spectrum.'
+        self.head['COMMENT'] = 'Times and exposure times are stored in 1D arrays.'
+        self.head['HISTORY'] = 'Created from a doppler.Data object'
 
     @classmethod
     def rfits(cls, fname):
