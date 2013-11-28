@@ -8,20 +8,6 @@ from astropy.io import fits
 
 from core import *
 
-def sameDims(arr1, arr2):
-    """
-    Checks that two numpy arrays have the same number of dimensions
-    and the same dimensions
-    """
-    if len(arr1) != len(arr2):
-        return False
-
-    for d1,d2 in zip(arr1.shape, arr2.shape):
-        if d1 != d2:
-            return False
-
-    return True
-
 class Spectra(object):
     """
     Container for a set of spectra. This is meant to represent a homogenous
@@ -56,15 +42,15 @@ class Spectra(object):
         """
 
         # checks
-        if not isinstance(flux, np.array):
+        if not isinstance(flux, np.ndarray):
             raise DopplerError('Data.__init__: flux must be a numpy array')
-        if not isinstance(ferr, np.array):
+        if not isinstance(ferr, np.ndarray):
             raise DopplerError('Data.__init__: ferr must be a numpy array')
-        if not isinstance(wave, np.array):
+        if not isinstance(wave, np.ndarray):
             raise DopplerError('Data.__init__: wave must be a numpy array')
-        if not isinstance(time, np.array):
+        if not isinstance(time, np.ndarray):
             raise DopplerError('Data.__init__: time must be a numpy array')
-        if not isinstance(expose, np.array):
+        if not isinstance(expose, np.ndarray):
             raise DopplerError('Data.__init__: expose must be a numpy array')
         if len(flux.shape) != 2:
             raise DopplerError('Data.__init__: flux must be a 2D array')
@@ -84,7 +70,25 @@ class Spectra(object):
         self.expose = expose
         self.fwhm   = fwhm
 
-    def toHDU(self):
+    @classmethod
+    def fromHDUl(cls, hdul):
+        """
+        Creates a Spectra from a list of (at least) 5
+        HDUs.
+        """
+        if len(hdul) < 5:
+            raise DopplerError('Spectra.fromHDUl: at least 5 HDUs are required.')
+
+        flux   = hdul[0].data
+        fwhm   = hdul[0].header['FWHM']
+        ferr   = hdul[1].data
+        wave   = hdul[2].data
+        time   = hdul[3].data
+        expose = hdul[4].data
+
+        return cls(flux,ferr,wave,time,expose,fwhm))
+
+    def toHDUl(self):
         """
         Returns the Spectra as an equivalent list of
         astropy.io.ImageHDUs (*not* an HDUList), suited
@@ -92,24 +96,24 @@ class Spectra(object):
         to a FITS file
         """
         head = fits.Header()
-        head['ATYPE'] = 'Fluxes'
+        head['TYPE'] = 'Fluxes'
         head['FWHM']  = (self.fwhm, 'FWHM in pixels')
         hdul = [fits.ImageHDU(self.flux,head),]
 
         head = fits.Header()
-        head['ATYPE'] = 'Flux errors'
+        head['TYPE'] = 'Flux errors'
         hdul.append(fits.ImageHDU(self.ferr,head))
 
         head = fits.Header()
-        head['ATYPE'] = 'Wavelengths'
+        head['TYPE'] = 'Wavelengths'
         hdul.append(fits.ImageHDU(self.wave,head))
 
         head = fits.Header()
-        head['ATYPE'] = 'Times'
+        head['TYPE'] = 'Times'
         hdul.append(fits.ImageHDU(self.time,head))
 
         head = fits.Header()
-        head['ATYPE'] = 'Exposure times'
+        head['TYPE'] = 'Exposure times'
         hdul.append(fits.ImageHDU(self.expose,head))
 
         return hdul
@@ -178,16 +182,8 @@ class Data(object):
             raise DopplerError('Data.rfits: ' + fname + ' did not have 5n+1 HDUs')
         head = hdul[0].header
         data = []
-        nhdu = 1
-        for ns in xrange(len(hdul)//5):
-            flux   = hdul[nhdu].data
-            fwhm   = hdul[nhdu].header['FWHM']
-            ferr   = hdul[nhdu+1].data
-            wave   = hdul[nhdu+2].data
-            time   = hdul[nhdu+3].data
-            expose = hdul[nhdu+4].data
-            nhdu  += 5
-            data.append(Spectra(flux,ferr,wave,time,expose,fwhm))
+        for nhdu in xrange(1,len(hdul),5):
+            data.append(Spectra.fromHDUl(hdul[nhdu]))
 
         return cls(head, data)
 
@@ -197,7 +193,7 @@ class Data(object):
         """
         hdul  = [fits.PrimaryHDU(header=self.head),]
         for spectra in self.data:
-            hdul += spectra.toHDU()
+            hdul += spectra.toHDUl()
         hdulist = fits.HDUList(hdul)
         hdulist.writeto(fname, clobber=clobber)
 
