@@ -86,7 +86,7 @@ class Spectra(object):
         time   = hdul[3].data
         expose = hdul[4].data
 
-        return cls(flux,ferr,wave,time,expose,fwhm))
+        return cls(flux,ferr,wave,time,expose,fwhm)
 
     def toHDUl(self):
         """
