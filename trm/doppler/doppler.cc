@@ -1,9 +1,427 @@
 // The hard work of Doppler imaging is done by the code here.
-
-#include <stdlib>
+#include <Python.h>
+#include "numpy/arrayobject.h"
+//#include <stdlib>
 #include <iostream>
+#include <vector>
 #include "trm/subs.h"
 #include "trm/constants.h"
+
+// Converter function. Assumes that 'obj' points to a
+// doppler.Map object. By the end of the routine "p"
+// points to 
+
+
+/*
+static int mapconv(PyObject* map, void* p) {
+
+    if(map == NULL) return 0;
+    
+    // Get the data attribute
+    PyObject* data  = PyObject_GetAttrString(data, "data")
+
+    // Create a pointer of the right type
+    std::vector<rvm>* vrvmp = (std::vector<rvm>*)p;
+
+    // Get number of elements
+    const Py_ssize_t NMASS = PySequence_Size(obj);
+    if(!NMASS){
+        PyErr_SetString(PyExc_ValueError, "orbits.integrate: there need to be at least 2 particles");
+        return 0;
+    }
+
+    // Set size of output structure
+    vrvmp->resize(NMASS);
+
+    int status = 1;
+
+    for(Py_ssize_t i=0; i<NMASS; i++){
+        PyObject* rvmp = PySequence_GetItem(obj, i);
+        if(rvmp){
+            PyObject* pr  = PyObject_GetAttrString(rvmp, "r");
+            PyObject* px  = PyObject_GetAttrString(pr, "x");
+            PyObject* py  = PyObject_GetAttrString(pr, "y");
+            PyObject* pz  = PyObject_GetAttrString(pr, "z");
+
+            PyObject* pv  = PyObject_GetAttrString(rvmp, "v");
+            PyObject* pvx = PyObject_GetAttrString(pv, "x");
+            PyObject* pvy = PyObject_GetAttrString(pv, "y");
+            PyObject* pvz = PyObject_GetAttrString(pv, "z");
+
+            PyObject* pm  = PyObject_GetAttrString(rvmp, "m");
+            PyObject* pls = PyObject_GetAttrString(rvmp, "ls");
+            PyObject* pvs = PyObject_GetAttrString(rvmp, "vs");
+            PyObject* pri = PyObject_GetAttrString(rvmp, "ri");
+
+            if(pr && px && py && pz && pv && pvx && pvy && pvz && pm && pls && pvs && pri){
+                // Next functions can convert integers to doubles
+                double x  = PyFloat_AsDouble(px);
+                double y  = PyFloat_AsDouble(py);
+                double z  = PyFloat_AsDouble(pz);
+                double vx = PyFloat_AsDouble(pvx);
+                double vy = PyFloat_AsDouble(pvy);
+                double vz = PyFloat_AsDouble(pvz);
+                double m  = PyFloat_AsDouble(pm);
+                double ls = PyFloat_AsDouble(pls);
+                double vs = PyFloat_AsDouble(pvs);
+                double ri = PyFloat_AsDouble(pri);
+
+                if(!PyErr_Occurred()){
+                    (*vrvmp)[i] = rvm(x,y,z,vx,vy,vz,m,ls,vs,ri);
+                }else{
+                    status = 0;
+                }
+            }else{
+                status = 0;
+            }
+
+            Py_XDECREF(px);
+            Py_XDECREF(py);
+            Py_XDECREF(pz);
+            Py_XDECREF(pr);
+
+            Py_XDECREF(pvx);
+            Py_XDECREF(pvy);
+            Py_XDECREF(pvz);
+            Py_XDECREF(pv);
+
+            Py_XDECREF(pm);
+            Py_XDECREF(pls);
+            Py_XDECREF(pvs);
+            Py_XDECREF(pri);
+
+            Py_XDECREF(rvmp);
+        }else{
+            status = 0;
+        }
+        if(!status) break;
+    }
+
+    return status;
+}
+*/
+
+/* read_map -- reads the data contained in a PyObject representing a Doppler map
+ * returning the contents in a series of vectors containing the information for
+ * each image of the map. To be called soon after sending a Map object into a 
+ * C routine.
+ *
+ * Arguments::
+ *
+ *  map     :  the Doppler map (input)
+ *  images  :  vector of pointers to image data (output)
+ *  nx      :  vector of X-dimensions (output)
+ *  ny      :  vector of Y-dimensions (output)
+ *  nz      :  vector of Z-dimensions (output)
+ *  vxy     :  vector of VX-VY pixels sizes for each image (output)
+ *  vz      :  vector of VZ spacings for each image (output)
+ *  wave    :  vector of vectors of wavelengths for each image (output)
+ *  gamma   :  vector of vectors of systemic velocities for each image (output)
+ *  scale   :  vector of vectors of systemic velocities for each image (output)
+ *
+ *  Returns True/False according to success. If False, the outputs above
+ *  will not be correctly assigned. If False, a Python exception is raised
+ *  and you should return NULL from the calling routine.
+ */
+
+bool
+read_map(PyObject *map, std::vector<float*>& images, std::vector<int>& nx, std::vector<int>& ny,
+         std::vector<int>& nz, std::vector<double>& ny,, std::vector<double>& ny, 
+         std::vector<std::vector<double> >& wave, std::vector<std::vector<double> >& gamma,
+         std::vector<std::vector<double> >& scale)
+{
+    
+    if(map == NULL){
+        PyErr_SetString(PyExc_ValueError, "doppler.read_map: map is NULL");
+        return false;
+    }
+    
+    // initialise attribute pointers
+    PyObject *data=NULL, *image=NULL, *idata=NULL, *iwave=NULL, *igamma=NULL, *ivxy=NULL;
+    PyObject *iscale=NULL, *ivz=NULL;
+    
+    // clear the output vectors
+    images.clear();
+    nx.clear();
+    ny.clear();
+    nz.clear();
+    vxy.clear();
+    vz.clear();
+    wave.clear();
+    gamma.clear();
+    scale.clear();
+
+    // get the data attribute. 
+    data  = PyObject_GetAttrString(map, "data");
+    if(!data){
+        PyErr_SetString(PyExc_ValueError, "doppler.read_map: map has no attribute called data");
+        goto failed;
+    }
+
+    // data should be a list of Images, so lets test it
+    if(!PySequence_Check(data)){
+        PyErr_SetString(PyExc_ValueError, "doppler.read_map: map.data is not a sequence");
+        goto failed;
+    }
+
+    // define scope to avoid compilation error
+    {
+        // work out the number of Images
+        Py_ssize_t nimage = PySequence_Size(data);
+        std::cerr << "nimage = " << nimage << std::endl;
+        
+        // loop through Images
+        for(Py_ssize_t i=0; i<nimage; i++){
+            image  = PySequence_GetItem(data, i);
+            if(!image){
+                PyErr_SetString(PyExc_ValueError, "doppler.read_map: failed to access element in map.data");
+                goto failed;
+            }
+
+            // get attributes of the image
+            idata  = PyObject_GetAttrString(image, "data");
+            iwave  = PyObject_GetAttrString(image, "wave");
+            igamma = PyObject_GetAttrString(image, "gamma");
+            ivxy   = PyObject_GetAttrString(image, "vxy");
+            
+            if(idata && iwave && igamma && ivxy && PyArray_Check(idata) && 
+               PyArray_Check(iwave) && PyArray_Check(igamma)){
+                
+                // store pointer to the data (note: avoid copying it)
+                images.push_back((float*)PyArray_DATA(idata));
+
+                // store dimensions
+                int nddim = PyArray_NDIM(idata);
+                npy_intp *ddims = PyArray_DIMS(idata);
+                nx.push_back(ddims[0]);
+                ny.push_back(ddims[1]);
+                if(nddim == 2){
+                    nz.push_back(1);
+                }else{
+                    nz.push_back(ddims[1]);
+                }
+
+                // copy over wavelengths
+                int nwdim = PyArray_NDIM(iwave);
+                if(nwdim != 1){
+                    PyErr_SetString(PyExc_ValueError, "doppler.read_map: arrays of wavelength must be 1D");
+                    goto failed;
+                }
+                npy_intp *wdims = PyArray_DIMS(iwave);
+                double *pwave = (double*)PyArray_DATA(iwave);
+                for(npy_intp j=0; j<wdims[0]; j++)
+                    wave.push_back(pwave[j]);
+
+                // copy over systemic velocities
+                int ngdim = PyArray_NDIM(igamma);
+                if(ngdim != 1){
+                    PyErr_SetString(PyExc_ValueError, "doppler.read_map: arrays of systemic velocities must be 1D");
+                    goto failed;
+                }
+                npy_intp *gdims = PyArray_DIMS(igamma);
+                if(gdims[0] != wdims[0]){
+                    PyErr_SetString(PyExc_ValueError, "doppler.read_map: systemic velocity array must match size of wavelength array");
+                    goto failed;
+                }
+                double *pgamma = (double*)PyArray_DATA(igamma);
+                for(npy_intp j=0; j<wdims[0]; j++)
+                    gamma.push_back(pgamma[j]);
+
+                // store the Vx-Vy pixel size
+                vxy.push_back(PyFloat_AsDouble(ivxy));
+
+                // store the Vz spacing
+                if(nddim == 3){
+                    ivz = PyObject_GetAttrString(image, "vz");
+                    if(!ivz){
+                        PyErr_SetString(PyExc_ValueError, "doppler.read_map: failed to access vz in Image");
+                        goto failed;
+                    }
+                    vz.push_back(PyFloat_AsDouble(ivz));
+                }
+
+                if(wdims[0] > 1){
+                    // copy over scale factors
+                    iscale = PyObject_GetAttrString(image, "scale");
+                    if(!iscale){
+                        PyErr_SetString(PyExc_ValueError, "doppler.read_map: failed to access scale in Image");
+                        goto failed;
+                    }
+                    int nsdim = PyArray_NDIM(iscale);
+                    if(nsdim != 1){
+                        PyErr_SetString(PyExc_ValueError, "doppler.read_map: arrays of scale factors must be 1D");
+                        goto failed;
+                    }
+                    npy_intp *sdims = PyArray_DIMS(iscale);
+                    if(sdims[0] != wdims[0]){
+                        PyErr_SetString(PyExc_ValueError, "doppler.read_map: scale factor array must match size of wavelength array");
+                        goto failed;
+                    }
+                    double *pscale = (double*)PyArray_DATA(iscale);
+                    for(npy_intp j=0; j<wdims[0]; j++)
+                        scale.push_back(pscale[j]);
+                }
+                
+                Py_XDECREF(image);
+                Py_XDECREF(idata);
+                Py_XDECREF(iwave);
+                Py_XDECREF(igamma);
+                Py_XDECREF(ivxy);
+                Py_XDECREF(ivz);
+                Py_XDECREF(iscale);
+                image = idata = iwave = igamma = ixvy = ivz = iscale = NULL;
+
+            }else{
+                PyErr_SetString(PyExc_ValueError, "doppler.read_map: failed to locate an Image attribute or one or more had the wrong type");
+                goto failed;
+            }
+        }
+    }
+
+    PyErr_SetString(PyExc_ValueError, "doppler.read_map: have not implemented a proper return yet");
+
+ failed:
+    Py_XDECREF(data);
+    Py_XDECREF(image);
+    Py_XDECREF(idata);
+    Py_XDECREF(iwave);
+    Py_XDECREF(igamma);
+    Py_XDECREF(ivxy);    
+    Py_XDECREF(ivz);    
+    Py_XDECREF(iscale);
+    return NULL;
+}
+
+/*
+ * The next routine gets called by the Python interpreter. This is
+ * the primary Python/C++ interface routine.
+ */
+
+static PyObject*
+doppler_tester(PyObject *self, PyObject *args, PyObject *kwords)
+{
+
+    // Process and check arguments
+    PyObject *map  = NULL;
+    static const char *kwlist[] = {"map", NULL};
+
+    if(!PyArg_ParseTupleAndKeywords(args, kwords, "O", (char**)kwlist, &map))
+        return NULL;
+
+    if(map == NULL){
+        PyErr_SetString(PyExc_ValueError, "doppler.tester: map is NULL");
+        return NULL;
+    }
+    
+    // initialise pointers
+    PyObject *data=NULL, *image=NULL, *idata=NULL;
+    PyObject *iwave=NULL, *igamma=NULL, *ivxy=NULL;
+    PyObject *iscale=NULL, *ivz=NULL;
+    
+    // store things
+    std::vector<float*> images;
+    std::vector<int> nx, ny, nz;
+    std::vector<std::vector<double>> wave, gamma, scale;
+    std::vector<double> vxy, vz;
+
+    // Get the data attribute. 
+    data  = PyObject_GetAttrString(map, "data");
+    if(!data){
+        PyErr_SetString(PyExc_ValueError, "doppler.tester: map has no attribute called data");
+        goto failed;
+    }
+
+    // data should be a list of Images, so lets test it
+    if(!PySequence_Check(data)){
+        PyErr_SetString(PyExc_ValueError, "doppler.tester: map.data is not a sequence");
+        goto failed;
+    }
+
+    // define scope to avoid compilation error
+    {
+        // work out the number of Images
+        Py_ssize_t nimage = PySequence_Size(data);
+        std::cerr << "nimage = " << nimage << std::endl;
+        
+        // loop through Images
+        for(Py_ssize_t i=0; i<nimage; i++){
+            image  = PySequence_GetItem(data, i);
+            if(!image){
+                PyErr_SetString(PyExc_ValueError, "doppler.tester: failed to access element in map.data");
+                goto failed;
+            }
+            idata  = PyObject_GetAttrString(image, "data");
+            iwave  = PyObject_GetAttrString(image, "wave");
+            igamma = PyObject_GetAttrString(image, "gamma");
+            ivxy   = PyObject_GetAttrString(image, "vxy");
+            
+            if(idata && iwave && igamma && ivxy && PyArray_Check(idata) && 
+               PyArray_Check(iwave) && PyArray_Check(igamma)){
+                
+                int nddim = PyArray_NDIM(idata);
+                npy_intp *ddims = PyArray_DIMS(idata);
+                std::cerr << "Image " << i << " has " << nddim << " dimensions." << std::endl;
+                nx.push_back(ddims[0]);
+                ny.push_back(ddims[1]);
+                if(nddim == 2){
+                    nz.push_back(1);
+                }else{
+                    nz.push_back(ddims[1]);
+                }
+
+                for(int j=0;j<nddim;j++)
+                    std::cerr << "Dimension " << j << " = " << ddims[j] << std::endl;
+                
+                double vxy  = PyFloat_AsDouble(ivxy);
+                std::cerr << "VXY = " << vxy << std::endl;
+                
+                Py_DECREF(image);
+                Py_DECREF(idata);
+                Py_DECREF(iwave);
+                Py_DECREF(igamma);
+                Py_DECREF(ivxy);
+                image = idata = iwave = igamma = ixvy = NULL;
+
+            }else{
+                PyErr_SetString(PyExc_ValueError, "doppler.tester: failed to locate an Image attribute or one or more had the wrong type");
+                goto failed;
+            }
+        }
+
+    }
+
+    PyErr_SetString(PyExc_ValueError, "doppler.tester: have not implemented a proper return yet");
+
+ failed:
+    Py_XDECREF(data);
+    Py_XDECREF(image);
+    Py_XDECREF(idata);
+    Py_XDECREF(iwave);
+    Py_XDECREF(igamma);
+    Py_XDECREF(ivxy);    
+    Py_XDECREF(ivz);    
+    Py_XDECREF(iscale);
+    return NULL;
+}
+
+// The methods
+
+static PyMethodDef DopplerMethods[] = {
+
+    {"tester", (PyCFunction)doppler_tester, METH_VARARGS | METH_KEYWORDS,
+     "tester(map)\n\n"
+     "testing routine\n\n"
+    },
+
+    {NULL, NULL, 0, NULL} /* Sentinel */
+};
+
+PyMODINIT_FUNC
+init_doppler(void)
+{
+    (void) Py_InitModule("_doppler", DopplerMethods);
+    import_array();
+}
 
 /*
  * map   -- multiple image data, stored in a 1D array for compatibility with mem routines.
@@ -13,6 +431,7 @@
  * scale -- scaling factors for each wavelength
  */
 
+/*
 struct XYZ {
     size_t nx, ny, nz;
 };
@@ -420,7 +839,7 @@ void Tomog::gaussdef(const float input[], size_t nwave, size_t ngamma,
 }
 
     
-
+*/
 
 
 
