@@ -1,5 +1,5 @@
 """
-Defines the classes needed to represent the multiple spectra needed for 
+Defines the classes needed to represent the multiple spectra needed for
 Doppler imaging in a FITS-compatible manner.
 """
 
@@ -12,9 +12,11 @@ class Spectra(object):
     """
     Container for a set of spectra. This is meant to represent a homogenous
     set of spectra, e.g. a set of spectra taken on one arm of a spectrograph
-    over two orbits of a binary for instance. The format is designed so that
-    raw spectra can be submitted with minimal manipulation. The Data class
-    takes a list of such objects to represent heterogeneous data.
+    over two orbits of a binary for instance. Each spectrum must have the same
+    number of pixels, but there can be wavelength shifts between spectra, and
+    their scales can be non-linear, so pretty much raw data can be passed
+    through. The Data class takes a list of such objects to represent
+    heterogeneous data.
 
     Attributes:
 
@@ -59,25 +61,34 @@ class Spectra(object):
         if not sameDims(flux,wave):
             raise DopplerError('Data.__init__: flux and wave are incompatible')
         if len(time.shape) != 1 or flux.shape[0] != len(time):
-            raise DopplerError('Data.__init__: flux and time have conflicting sizes')
+            raise DopplerError('Data.__init__: flux and time have' +
+                               ' conflicting sizes')
         if len(expose.shape) != 1 or flux.shape[0] != len(expose):
-            raise DopplerError('Data.__init__: flux and expose have conflicting sizes')
+            raise DopplerError('Data.__init__: flux and expose have' +
+                               ' conflicting sizes')
 
-        self.flux   = flux
-        self.ferr   = ferr
-        self.wave   = wave
-        self.time   = time
-        self.expose = expose
+        # Manipulate data types for efficiency savings when calling
+        # the C++ interface routines.
+        self.flux = flux if flux.dtype == np.float32 \
+            else flux.astype(np.float32)
+        self.ferr = ferr if ferr.dtype == np.float32 \
+            else ferr.astype(np.float32)
+        self.wave = wave if wave.dtype == np.float64 \
+            else wave.astype(np.float64)
+        self.time = time if time.dtype == np.float64 \
+            else time.astype(np.float64)
+        self.expose = expose if expose.dtype == np.float32 \
+            else expose.astype(np.float32)
         self.fwhm   = fwhm
 
     @classmethod
     def fromHDUl(cls, hdul):
         """
-        Creates a Spectra from a list of (at least) 5
-        HDUs.
+        Creates a Spectra from a list of (at least) 5 HDUs.
         """
         if len(hdul) < 5:
-            raise DopplerError('Spectra.fromHDUl: at least 5 HDUs are required.')
+            raise DopplerError('Spectra.fromHDUl: at least 5' +
+                               ' HDUs are required.')
 
         flux   = hdul[0].data
         fwhm   = hdul[0].header['FWHM']
@@ -90,10 +101,9 @@ class Spectra(object):
 
     def toHDUl(self):
         """
-        Returns the Spectra as an equivalent list of
-        astropy.io.ImageHDUs (*not* an HDUList), suited
-        to adding onto other hdus for eventual writing
-        to a FITS file
+        Returns the Spectra as an equivalent list of astropy.io.ImageHDUs
+        (*not* an HDUList), suited to adding onto other hdus for eventual
+        writing to a FITS file
         """
         head = fits.Header()
         head['TYPE'] = 'Fluxes'
@@ -126,8 +136,8 @@ class Spectra(object):
 
 class Data(object):
     """
-    This class represents all the data needed for Doppler tomogarphy.
-    It has the following attributes::
+    This class represents all the data needed for Doppler tomogarphy.  It has
+    the following attributes::
 
       head : an astropy.io.fits.Header object
 
@@ -138,7 +148,8 @@ class Data(object):
         """
         Creates a Data object
 
-        head : an astropy.io.fits.Header object
+        head : an astropy.io.fits.Header object. This is copied
+               and some extra comments added to it internally.
 
         data : a Spectra or a list of Spectra
         """
@@ -163,27 +174,36 @@ class Data(object):
 
         self.head = head.copy()
         self.head.add_blank('............................')
-        self.head['COMMENT'] = 'This file contains spectroscopic data for Doppler imaging.'
-        self.head['COMMENT'] = 'Fluxes, flux errors and wavelengths are stored in 2D arrays'
-        self.head['COMMENT'] = 'each row of which represents one spectrum.'
-        self.head['COMMENT'] = 'Times and exposure times are stored in 1D arrays.'
+        self.head['COMMENT'] = \
+            'This file contains spectroscopic data for Doppler imaging.'
+        self.head['COMMENT'] = \
+            'Fluxes, flux errors and wavelengths are stored in 2D arrays'
+        self.head['COMMENT'] = \
+            'each row of which represents one spectrum.'
+        self.head['COMMENT'] = \
+            'Times and exposure times are stored in 1D arrays.'
+        self.head['COMMENT'] = \
+            'Multiple dataset can be present, but each requires 5 HDUs'
+        self.head['COMMENT'] = \
+            'to cover the elements described above'
         self.head['HISTORY'] = 'Created from a doppler.Data object'
 
     @classmethod
     def rfits(cls, fname):
         """
-        Reads in data from a fits file. The primary HDU's header is
-        read along with data which should be 2D representing flux densities.
-        Three more HDUs are expected containing (1) uncertainties in the
-        flux densities, (2) wavelengths, and (3) times.
+        Reads in data from a fits file. The primary HDU's header is read along
+        with data which should be 2D representing flux densities.  Three more
+        HDUs are expected containing (1) uncertainties in the flux densities,
+        (2) wavelengths, and (3) times.
         """
         hdul = fits.open(fname)
         if len(hdul) < 6 or len(hdul) % 5 != 1:
-            raise DopplerError('Data.rfits: ' + fname + ' did not have 5n+1 HDUs')
+            raise DopplerError('Data.rfits: ' + fname +
+                               ' did not have 5n+1 HDUs')
         head = hdul[0].header
         data = []
         for nhdu in xrange(1,len(hdul),5):
-            data.append(Spectra.fromHDUl(hdul[nhdu]))
+            data.append(Spectra.fromHDUl(hdul[nhdu:]))
 
         return cls(head, data)
 
@@ -210,7 +230,7 @@ if __name__ == '__main__':
 
     # create arrays
     shape  = (10,100)
-    flux   = np.zeros(shape)
+    flux   = np.zeros(shape,dtype=np.float32)
     ferr   = 0.1*np.ones_like(flux)
     wave   = np.linspace(490.,510.,shape[1])
     time   = np.linspace(50000.,50000.1,shape[0])
