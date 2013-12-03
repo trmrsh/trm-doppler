@@ -9,19 +9,22 @@ from core import *
 
 class Image(object):
     """
-    This class contains the data associated with one image, including
-    the wavelength of the line or lines associated with the image,
-    and any associated scaling factors, and the velocity scales of 
-    the image. 2D images have square pixels in velocity space VXY
-    on a side. 3D images can be thought of as a series of 2D images
-    spaced by VZ. The following attributes are set::
+    This class contains the data associated with one image, including the
+    wavelength of the line or lines associated with the image, and any
+    associated scaling factors, and the velocity scales of the image. 2D
+    images have square pixels in velocity space VXY on a side. 3D images can
+    be thought of as a series of 2D images spaced by VZ. The following
+    attributes are set::
 
       data  : the image data array, 2D or 3D
-      wave  : array of associated wavelengths (will be an array even if only 1 value)
+      wave  : array of associated wavelengths (will be an array even if
+              only 1 value)
       gamma : array of systemic velocities, one per wavelength
       vxy   : pixel size in Vx-Vy plane, km/s, square.
-      scale : scale factors to use if len(wave) > 1
-      vz    : km/s in vz direction if data.ndim == 3
+      scale : scale factors to use if len(wave) > 1 (will still be defined
+              but probably = None otherwise)
+      vz    : km/s in vz direction if data.ndim == 3 (will still be defined
+              but probably = None otherwise)
     """
 
     def __init__(self, data, vxy, wave, gamma, scale=None, vz=None):
@@ -30,22 +33,27 @@ class Image(object):
 
           data : the data array, either 2D or 3D.
 
-          vxy  : the pixel size in the X-Y plane, same in both X and Y, units km/s.
+          vxy : the pixel size in the X-Y plane, same in both X and Y, units
+                km/s.
 
-          wave : the wavelength or wavelengths associated with this Image. The same image
-                 can represent multiple lines, in which case a set of scale factors must
-                 be supplied as well. Can either be a single float or an array.
+          wave : the wavelength or wavelengths associated with this Image. The
+                 same image can represent multiple lines, in which case a set
+                 of scale factors must be supplied as well. Can either be a
+                 single float or an array.
 
           gamma : systemic velocity or velocities for each lines, km/s
 
-          scale : if there are multiple lines modelled by this Image (e.g. the Balmer series)
-                  then you must supply scaling factors to be applied for each one as well.
-                  scale must have the same dimension as wave in this case.
+          scale : if there are multiple lines modelled by this Image (e.g. the
+                  Balmer series) then you must supply scaling factors to be
+                  applied for each one as well.  scale must have the same
+                  dimension as wave in this case.
 
-          vz : if data is 3D then you must supply a z-velocity spacing in km/s.
+          vz : if data is 3D then you must supply a z-velocity spacing in
+               km/s.
         """
         if not isinstance(data, np.ndarray) or data.ndim < 2 or data.ndim > 3:
-            raise DopplerError('Image.__init__: data must be a 2D or 3D numpy array')
+            raise DopplerError('Image.__init__: data must be a 2D' +
+                               ' or 3D numpy array')
         if data.ndim == 3 and vz is None:
             raise DopplerError('Image.__init__: vz must be defined for 3D data')
 
@@ -55,38 +63,45 @@ class Image(object):
 
         if isinstance(wave, np.ndarray):
             if wave.ndim > 1:
-                raise DopplerError('Image.__init__: wave can at most be one dimensional')
+                raise DopplerError('Image.__init__: wave can at most' +
+                                   ' be one dimensional')
             self.wave = wave
         else:
             self.wave = np.array([float(wave),])
 
         if isinstance(gamma, np.ndarray):
             if gamma.ndim > 1:
-                raise DopplerError('Image.__init__: gamma can at most be one dimensional')
+                raise DopplerError('Image.__init__: gamma can at most' +
+                                   ' be one dimensional')
             self.gamma = gamma
         else:
-            self.gamma = np.array([float(gamma),])
+            self.gamma = np.array([float(gamma),],dtype=np.float32)
 
         if len(self.gamma) != len(self.wave):
-                raise DopplerError('Image.__init__: gamma and wave must match in size')
+                raise DopplerError('Image.__init__: gamma and wave must' +
+                                   ' match in size')
 
         if isinstance(scale, np.ndarray):
             if scale.ndim > 1:
-                raise DopplerError('Image.__init__: scale can at most be one dimensional')
+                raise DopplerError('Image.__init__: scale can at most' +
+                                   ' be one dimensional')
             self.scale = scale
 
             if len(self.scale) != len(self.wave):
-                raise DopplerError('Image.__init__: scale and wave must match in size')
+                raise DopplerError('Image.__init__: scale and wave must' +
+                                   ' match in size')
 
         elif len(self.wave) > 1:
-            raise DopplerError('Image.__init__: scale must be an array in wave is')
+            raise DopplerError('Image.__init__: scale must be an array' +
+                               ' if wave is')
         else:
             self.scale = None
 
     def toHDU(self):
         """
-        Returns the Image as an astropy.io.fits.ImageHDU. The map is held as the
-        main array. All the rest of the information is stored in the header.
+        Returns the Image as an astropy.io.fits.ImageHDU. The map is held as
+        the main array. All the rest of the information is stored in the
+        header.
         """
 
         # create header which contains all but the actual data array
@@ -118,8 +133,10 @@ class Image(object):
 
         data = hdu.data
         head = hdu.header
-        if 'VXY' not in head or 'NWAVE' not in head or 'WAVE1' not in head or 'GAMMA1' not in head:
-            raise DopplerError('Image.fromHDU: one or more of VXY, NWAVE, WAVE1, GAMMA1 not found in HDU')
+        if 'VXY' not in head or 'NWAVE' not in head \
+                or 'WAVE1' not in head or 'GAMMA1' not in head:
+            raise DopplerError('Image.fromHDU: one or more of' +
+                               ' VXY, NWAVE, WAVE1, GAMMA1 not found in HDU')
 
         vxy = head['VXY']
         if data.ndim == 3:
@@ -144,7 +161,7 @@ class Image(object):
             ', vxy=' + repr(self.vxy) + ', wave=' + repr(self.wave) + \
             ', gamma=' + repr(self.gamma) + ', scale=' + repr(self.scale) + \
             ', vz=' + repr(self.vz) + ')'
-            
+
 class Map(object):
     """
     This class represents a complete Doppler image. Features include:
