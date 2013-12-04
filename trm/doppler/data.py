@@ -30,15 +30,16 @@ class Spectra(object):
              a constant or near-enough constant zeropoint (e.g. heliocentric
              or better still, barycentric)
 
-      time : 1D array of times, matching the Y-dimension of flux. These
-             are the times at the centres of the exposures.
+      time : times at centre of each spectrum
 
-      expose : 1D array of exposure lengths (same units as the times).
+      expose : length of each spectrum
+
+      ndiv : sub-division factors for accounting for finite exposures
 
       fwhm : FWHM of point spread function of spectra, in terms of pixels.
     """
 
-    def __init__(self, flux, ferr, wave, time, expose, fwhm):
+    def __init__(self, flux, ferr, wave, time, expose, ndiv, fwhm):
         """
         Creates a Spectra object.
         """
@@ -52,8 +53,7 @@ class Spectra(object):
             raise DopplerError('Data.__init__: wave must be a numpy array')
         if not isinstance(time, np.ndarray):
             raise DopplerError('Data.__init__: time must be a numpy array')
-        if not isinstance(expose, np.ndarray):
-            raise DopplerError('Data.__init__: expose must be a numpy array')
+
         if len(flux.shape) != 2:
             raise DopplerError('Data.__init__: flux must be a 2D array')
         if not sameDims(flux,ferr):
@@ -65,6 +65,9 @@ class Spectra(object):
                                ' conflicting sizes')
         if len(expose.shape) != 1 or flux.shape[0] != len(expose):
             raise DopplerError('Data.__init__: flux and expose have' +
+                               ' conflicting sizes')
+        if len(ndiv.shape) != 1 or flux.shape[0] != len(ndiv):
+            raise DopplerError('Data.__init__: flux and ndiv have' +
                                ' conflicting sizes')
 
         # Manipulate data types for efficiency savings when calling
@@ -79,31 +82,35 @@ class Spectra(object):
             else time.astype(np.float64)
         self.expose = expose if expose.dtype == np.float32 \
             else expose.astype(np.float32)
+        self.ndiv = ndiv if ndiv.dtype == np.int32 \
+            else ndiv.astype(np.int32)
         self.fwhm   = fwhm
 
     @classmethod
     def fromHDUl(cls, hdul):
         """
-        Creates a Spectra from a list of (at least) 5 HDUs.
+        Creates a Spectra from a list of 4 HDUs.
         """
-        if len(hdul) < 5:
-            raise DopplerError('Spectra.fromHDUl: at least 5' +
+        if len(hdul) < 4:
+            raise DopplerError('Spectra.fromHDUl: minimum 4' +
                                ' HDUs are required.')
 
         flux   = hdul[0].data
         fwhm   = hdul[0].header['FWHM']
         ferr   = hdul[1].data
         wave   = hdul[2].data
-        time   = hdul[3].data
-        expose = hdul[4].data
+        table  = hdul[3].data
+        time   = table['time']
+        expose = table['expose']
+        ndiv   = table['ndiv']
 
-        return cls(flux,ferr,wave,time,expose,fwhm)
+        return cls(flux,ferr,wave,time,expose,ndiv,fwhm)
 
     def toHDUl(self):
         """
-        Returns the Spectra as an equivalent list of astropy.io.ImageHDUs
-        (*not* an HDUList), suited to adding onto other hdus for eventual
-        writing to a FITS file
+        Returns the Spectra as an equivalent list of astropy.io.fits HDUs (3
+        image, 1 table, *not* an HDUList), suited to adding onto other hdus
+        for eventual writing to a FITS file
         """
         head = fits.Header()
         head['TYPE'] = 'Fluxes'
@@ -120,11 +127,12 @@ class Spectra(object):
 
         head = fits.Header()
         head['TYPE'] = 'Times'
-        hdul.append(fits.ImageHDU(self.time,head))
 
-        head = fits.Header()
-        head['TYPE'] = 'Exposure times'
-        hdul.append(fits.ImageHDU(self.expose,head))
+        # make a table HDU
+        c1 = fits.Column(name='time', format='D', array=self.time)
+        c2 = fits.Column(name='expose', format='E', array=self.expose)
+        c3 = fits.Column(name='ndiv', format='J', array=self.ndiv)
+        hdul.append(fits.new_table(fits.ColDefs([c1,c2,c3]),head))
 
         return hdul
 
@@ -132,7 +140,7 @@ class Spectra(object):
         return 'Spectra(flux=' + repr(self.flux) + \
             ', ferr=' + repr(self.ferr) + ', wave=' + repr(self.wave) + \
             ', time=' + repr(self.time) + ', expose=' + repr(self.expose) + \
-            ', fwhm=' + repr(self.fwhm) + ')'
+            ', ndiv=' + repr(self.ndiv) + ', fwhm=' + repr(self.fwhm) + ')'
 
 class Data(object):
     """
@@ -172,21 +180,7 @@ class Data(object):
                                    ' Spectra or a list of Spectra')
             self.data = [data,]
 
-        self.head = head.copy()
-        self.head.add_blank('............................')
-        self.head['COMMENT'] = \
-            'This file contains spectroscopic data for Doppler imaging.'
-        self.head['COMMENT'] = \
-            'Fluxes, flux errors and wavelengths are stored in 2D arrays'
-        self.head['COMMENT'] = \
-            'each row of which represents one spectrum.'
-        self.head['COMMENT'] = \
-            'Times and exposure times are stored in 1D arrays.'
-        self.head['COMMENT'] = \
-            'Multiple dataset can be present, but each requires 5 HDUs'
-        self.head['COMMENT'] = \
-            'to cover the elements described above'
-        self.head['HISTORY'] = 'Created from a doppler.Data object'
+        self.head = head
 
     @classmethod
     def rfits(cls, fname):
@@ -194,15 +188,16 @@ class Data(object):
         Reads in data from a fits file. The primary HDU's header is read along
         with data which should be 2D representing flux densities.  Three more
         HDUs are expected containing (1) uncertainties in the flux densities,
-        (2) wavelengths, and (3) times.
+        (2) wavelengths, and (3) a table HDU containing central exposure times,
+        exposure lengths and sub-division factors.
         """
         hdul = fits.open(fname)
-        if len(hdul) < 6 or len(hdul) % 5 != 1:
-            raise DopplerError('Data.rfits: ' + fname +
-                               ' did not have 5n+1 HDUs')
+        if len(hdul) < 5 or len(hdul) % 4 != 1:
+            raise DopplerError('Data.rfits: ' + fname + 
+                               ' did not have 4n+1 HDUs')
         head = hdul[0].header
         data = []
-        for nhdu in xrange(1,len(hdul),5):
+        for nhdu in xrange(1,len(hdul),6):
             data.append(Spectra.fromHDUl(hdul[nhdu:]))
 
         return cls(head, data)
@@ -235,6 +230,7 @@ if __name__ == '__main__':
     wave   = np.linspace(490.,510.,shape[1])
     time   = np.linspace(50000.,50000.1,shape[0])
     expose = 0.001*np.ones_like(time)
+    ndiv   = np.ones_like(time,dtype=np.int)
     fwhm   = 2.2
 
     # manipulate the fluxes to be vaguely interesting
@@ -244,7 +240,7 @@ if __name__ == '__main__':
                         2.*np.pi*(times-50000.)/0.1)))/1.5)**2/2.)
 
     # create the Spectra
-    spectra = Spectra(flux,ferr,wave,time,expose,fwhm)
+    spectra = Spectra(flux,ferr,wave,time,expose,ndiv,fwhm)
 
     # create the Data
     data = Data(head,spectra)
