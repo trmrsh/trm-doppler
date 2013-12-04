@@ -16,15 +16,15 @@ class Image(object):
     be thought of as a series of 2D images spaced by VZ. The following
     attributes are set::
 
-      data  : the image data array, 2D or 3D
-      wave  : array of associated wavelengths (will be an array even if
-              only 1 value)
-      gamma : array of systemic velocities, one per wavelength
-      vxy   : pixel size in Vx-Vy plane, km/s, square.
-      scale : scale factors to use if len(wave) > 1 (will still be defined
-              but probably = None otherwise)
-      vz    : km/s in vz direction if data.ndim == 3 (will still be defined
-              but probably = None otherwise)
+      data   : the image data array, 2D or 3D
+      wave   : array of associated wavelengths (will be an array even if
+               only 1 value)
+      gamma  : array of systemic velocities, one per wavelength
+      vxy    : pixel size in Vx-Vy plane, km/s, square.
+      scale  : scale factors to use if len(wave) > 1 (will still be defined
+               but probably = None otherwise)
+      vz     : km/s in vz direction if data.ndim == 3 (will still be defined
+               but probably = None otherwise)
     """
 
     def __init__(self, data, vxy, wave, gamma, scale=None, vz=None):
@@ -57,7 +57,8 @@ class Image(object):
         if data.ndim == 3 and vz is None:
             raise DopplerError('Image.__init__: vz must be defined for 3D data')
 
-        self.data = data
+        self.data = data if data.dtype == np.float32 \
+            else data.astype(np.float32)
         self.vxy  = vxy
         self.vz   = vz
 
@@ -173,26 +174,45 @@ class Map(object):
       head : an astropy.io.fits.Header object
 
       data : a list of Image objects.
+
+      tzero  : zeropoint of ephemeris in the same units as the times of the data
+
+      period : period of ephemer in the same units as the times of the data
+
+      vfine  : km/s to use for the fine array used to project into before blurring.
+               Should be a few times (5x at most) smaller than the km/s used for any
+               image.
+
+      vpad   : padding used to extend the fine array beyond the range strictly defined
+               by the images. This is a fudge to allow for blurring of the data.
     """
 
-    def __init__(self, head, data):
+    def __init__(self, head, data, tzero, period, vfine, vpad):
         """
         Creates a Map object
 
         head : an astropy.io.fits.Header object
 
         data : an Image or a list of Images
+
+        tzero  : zeropoint of ephemeris in the same units as the times of the data
+
+        period : period of ephemer in the same units as the times of the data
+
+        vfine : km/s to use for the fine array used to project into before
+                blurring.  Should be a few times (5x at most) smaller than
+                the km/s used for any image.
+
+        vpad : padding used to extend the fine array beyond the range strictly
+               defined by the images. This is a fudge to allow for blurring of
+               the data.
         """
 
         # some checks
         if not isinstance(head, fits.Header):
             raise DopplerError('Map.__init__: head' +
                                ' must be a fits.Header object')
-        self.head = head.copy()
-        self.head.add_blank('............................')
-        self.head['COMMENT'] = 'This file contains Doppler images.'
-        self.head['COMMENT'] = 'Images can be 2D or 3D; VXY and VZ are the X,Y and Z velocity scales'
-        self.head['HISTORY'] = 'Created from a doppler.Map object'
+        self.head = head
 
         try:
             for i, image in enumerate(data):
@@ -207,27 +227,55 @@ class Map(object):
                                    ' Image or a list of Images')
             self.data = [data,]
 
+        self.tzero  = tzero
+        self.period = period
+        self.vfine  = vfine
+        self.vpad   = vpad
+
     @classmethod
     def rfits(cls, fname):
         """
         Reads in a Map from a fits file. The primary HDU's header is
-        read fololowed by Images in the subsequent HDUs
+        read followed by Images in the subsequent HDUs. The primary
+        HDU header is expected to contain a few standard keywords
+        which are stripped out.
         """
         hdul = fits.open(fname)
         if len(hdul) < 2:
             raise DopplerError('Map.rfits: ' + fname + ' had too few HDUs')
         head = hdul[0].header
+
+        # Extract standard values that must be present
+        tzero  = head['TZERO']
+        period = head['PERIOD']
+        vfine  = head['VFINE']
+        vpad   = head['VPAD']
+
+        # Remove from the header
+        del head['TZERO']
+        del head['PERIOD']
+        del head['VFINE']
+        del head['VPAD']
+
+        # Now the data
         data = []
         for hdu in hdul[1:]:
             data.append(Image.fromHDU(hdu))
 
-        return cls(head, data)
+        # OK, now make the map
+        return cls(head, data, tzero, period, vfine, vpad)
 
     def wfits(self, fname, clobber=True):
         """
-        Writes a Map to an hdu list
+        Writes a Map to a file
         """
-        hdul  = [fits.PrimaryHDU(header=self.head),]
+        # copy the header so we can safely modify it
+        head = self.head.copy()
+        head['TZERO']  = (self.tzero, 'Zeropoint of ephemeris')
+        head['PERIOD'] = (self.period, 'Period of ephemeris')
+        head['VFINE']  = (self.vfine, 'Fine array spacing, km/s')
+        head['VPAD']   = (self.vpad, 'Fine array padding, km/s')
+        hdul  = [fits.PrimaryHDU(header=head),]
         for image in self.data:
             hdul.append(image.toHDU())
         hdulist = fits.HDUList(hdul)
@@ -235,7 +283,9 @@ class Map(object):
 
     def __repr__(self):
         return 'Map(head=' + repr(self.head) + \
-            ', data=' + repr(self.data) + ')'
+            ', data=' + repr(self.data) + ', tzero=' + repr(self.tzero) + \
+            ', period=' + repr(self.period) + ', vfine=' + repr(self.vfine) + \
+            ', vpad=' + repr(self.vpad) + ')'
 
 if __name__ == '__main__':
 
@@ -263,10 +313,19 @@ if __name__ == '__main__':
     gamma2 = 150.
     image2 = Image(data2, vxy, wave2, gamma2)
 
-    # create the Data
-    map = Map(head,[image1,image2])
+    tzero   =  2550000.
+    period  =  0.15
+    vfine   =  10.
+    vpad    =  200.
 
+    # create the Map
+    map = Map(head,[image1,image2],tzero,period,vfine,vpad)
+
+    # write to fits
     map.wfits('test.fits')
 
+    # read from fits
     m = Map.rfits('test.fits')
+
+    # print to screen
     print m
