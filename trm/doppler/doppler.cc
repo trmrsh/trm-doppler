@@ -1,20 +1,400 @@
 // The hard work of Doppler imaging is done by the code here. Much of code
-// (~800 lines or so) is unedifying "boilerplate" for interfacing Python and
+// (~1000 lines or so) is unedifying "boilerplate" for interfacing Python and
 // C++, and in particular to the C++ mem routines. The minimal number of
 // routines needed to do this is provided. Most manipulations of the objects
-// are better left to Python. The routines in this file are as follows::
+// are better left to Python. The main routines that do the hard work in mem
+// are op and tr that carry out the image to data projection and its
+// transpose.
+//
+// The routines in this file are as follows::
 //
 //  npix_map    : calculates the number of pixels needed for the images
 //  read_map    : makes internal contents of a Map object accessible from C++
 //  update_data : overwrites image array(s) of a Map object.
-//  npix_data  : calculates the number of pixels needed for fluxes, errors, wave
-//  read_data  : makes internal contents of a Data object accessible from C++
+//  npix_data   : calculates the number of pixels needed for fluxes, errors,
+//                wave
+//  read_data   : makes internal contents of a Data object accessible from C++
 //  update_data : overwrites flux array(s) of a Data object.
+//  op          : image to data transform routine.
 
 #include <Python.h>
 #include <iostream>
 #include <vector>
 #include "numpy/arrayobject.h"
+#include <cmath>
+#include <complex.h>
+#include <fftw3.h>
+
+// Speed of light in km/s
+const double CKMS = 299792.458;
+
+// Ratio FWHM/sigma for a gaussian
+const double EFAC = 2.354820045;
+
+// simple structure for containing image dimensions
+struct Nxyz{
+    Nxyz(size_t nx, size_t ny, size_t nz=1) : nx(nx), ny(ny), nz(nz) {}
+    size_t nx, ny, nz;
+};
+
+/* op computes the image to data transform that is the heart of Doppler
+ * tomography. i.e it projects the image(s) to compute data corresponding to
+ * each spectrum.
+ *
+ * Arguments::
+ *
+ *  image  : multiple images, stored in a 1D array for compatibility with
+ *           mem routines (input)
+ *  nxyz   : dimensions of each image, one/image, (input)
+ *  vxy    : Vx-Vy pixel size(s), one/image, (input)
+ *  vz     : Vz pixel size(s), one/image, (input)
+ *  wavel  : central wavelengths for each image, vector/image, (input)
+ *  gamma  : systemic velocities for each wavelength, vector/image, (input)
+ *  scale  : scaling factors for each wavelength, vector/image, (input)
+ *  tzero  : ephemeris zero point, same units as the times (input)
+ *  period : ephemeris period, same units as the times (input)
+ *  vfine  : km/s to use for internal fine array (input)
+ *  vpad   : km/s to allow at each end of fine array beyond maximum extent
+ *           implied by images. (input)
+ *  data   : computed data, again as a 1D array for mem routines (output)
+ *  wave   : wavelength array, matching the data array, (input)
+ *  nwave  : number of wavelengths, one/dataset [effectively an X dimension],
+ *           (input)
+ *  nspec  : number of spectra, one/dataset [effectively a Y dimension], (input)
+ *  time   : central times for each spectrum (input)
+ *  expose : exposure lengths for each spectrum (input)
+ *  ndiv   : sub-division factors for each spectrum (input)
+ *  fwhm   : FWHM resolutions, kms/s, one/dataset, (input)
+ *
+ * Note the arguments 'image' through to 'vpad' are associated with the
+ * Doppler map file, while the rest are associated with the data. 'data' is
+ * the only output argument.
+ */
+
+void op(const float* image, const std::vector<Nxyz>& nxyz,
+        const std::vector<double>& vxy, const std::vector<double>& vz,
+        const std::vector<std::vector<double> >& wavel,
+        const std::vector<std::vector<float> >& gamma,
+        const std::vector<std::vector<float> >& scale,
+        double tzero, double period, double vfine, double vpad,
+        float* data, const double* wave,
+        const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
+        const std::vector<std::vector<double> >& time,
+        const std::vector<std::vector<float> >& expose,
+        const std::vector<std::vector<int> >& ndiv,
+        const std::vector<double>& fwhm){
+
+    // Each image is first projected onto a finely-spaced array which is
+    // later blurred. This should be faster than blurring each image pixel.
+    // Start by computing the size of the fine array
+    size_t nimage = nxyz.size(), nx, ny, nz;
+    double vmax = 0.;
+    for(size_t nim=0; nim<nimage; nim++){
+        nx = nxyz[nim].nx;
+        ny = nxyz[nim].ny;
+        nz = nxyz[nim].nz;
+        vmax = std::max(std::sqrt(std::pow(vxy[nim],2)
+                                  *(std::pow(nx,2)+std::pow(ny,2))+
+                                  std::pow(vz[nim]*nz,2)), vmax);
+    }
+    vmax += 2.*vpad;
+
+    // NFINE is the number of pixels needed for the fine array.
+    const int nfine = std::max(5,int(vmax/vfine));
+
+    // adjust vmax to be the maximum velocity of the fine array
+    vmax = nfine*vfine/2.;
+
+    // Now we need to know how many pixels at most are needed for the blurring
+    // function. Loop over the data sets. Also take chance to compute number
+    // of data pixels
+    size_t nblurr = 0, ndpix = 0;
+    double psigma;
+    for(size_t nd=0; nd<nspec.size(); nd++){
+        // sigma of blurring in terms of fine array pixels
+        psigma = fwhm[nd]/vfine/EFAC;
+
+        // total blurr width will be 2*nblurr+1
+        nblurr = std::max(nblurr,size_t(round(5.*psigma)));
+        ndpix += nwave[nd]*nspec[nd];
+    }
+
+    // The blurring is carried out with FFTs requiring zero padding.  Thus the
+    // actual number of pixels to grab is the nearest power of 2 larger than
+    // nfine+2*nblurr+1. Call this NFINE.
+    const size_t NFINE =
+        size_t(std::pow(2,int(std::ceil(std::log(nfine+2*nblurr+1)/
+                                        std::log(2.)))));
+
+    std::cerr << "vmax = " << vmax << ", nfine = " << nfine <<
+        ", NFINE = " << NFINE << std::endl;
+
+    // grab memory for blurring array and associated FFTs
+    double *blurr = new double[NFINE];
+
+    // this for the FFT of the blurring array. This could in fact be done in
+    // place, but the amount of memory required here is small, so it is better
+    // to have an explicit dedicated array
+    const size_t NFFT = NFINE/2+1;
+    fftw_complex *bfft = (fftw_complex*) 
+        fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+    // this for the FFT of the fine pixel array
+    fftw_complex *fpfft = (fftw_complex*) 
+        fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+    // Grab space for fine arrays
+    double *fine  = new double[NFINE];
+    double *tfine = new double[NFINE];
+
+    // establish plans for the fine pixel FFT and the final inverse
+    fftw_plan pforw = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft, 
+                                           FFTW_ESTIMATE);
+    fftw_plan pback = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine, 
+                                           FFTW_ESTIMATE);
+    // various local variables
+    size_t k, m, n;
+    double norm, prf, fp1, fp2, v1, v2, sum;
+    double wv, gm, sc;
+
+    // pixel index in fine array
+    int nf, ifp1, ifp2;
+
+    // phase, cosine, sine, weight factor
+    double phase, cosp, sinp, weight;
+
+    // image indices
+    size_t ix, iy, iz;
+
+    // image velocity steps
+    double vxyi, vzi = 0.;
+
+    // steps and offset in fine pixel space
+    double pxstep, pystep, pzstep, pxoff, pyoff, pzoff;
+
+    // temporary image & data pointers
+    const float *iptr, *iiptr;
+    float *dptr;
+    const double *wptr;
+
+    // large series of nested loops coming up.
+    // First zero the data array
+    memset(data, 0, ndpix*sizeof(float));
+
+    // Loop over each data set
+    for(size_t nd=0; nd<nspec.size(); nd++){
+
+        // compute blurring array (specific to the dataset
+        // so can't be done earlier). End by FFT-ing it in order
+        // to perform the convolution later.
+        memset(blurr, 0, NFINE*sizeof(double));
+        norm = blurr[0] = 1.;
+        psigma = fwhm[nd]/vfine/EFAC;
+        for(m=1, n=2*nblurr; m<nblurr; m++, n--){
+            prf = std::exp(-std::pow(m/psigma,2)/2.);
+            blurr[m] = blurr[n] = prf;
+            norm += 2.*prf;
+        }
+        
+        // normalise
+        for(m=0;m<2*nblurr+1;m++)
+            blurr[m] /= norm;
+        
+        // create plan
+        fftw_plan p = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft, 
+                                           FFTW_ESTIMATE);
+        // execute it
+        fftw_execute(p);
+        
+        // destroy the plan. FFT now contained in bfft array.
+        fftw_destroy_plan(p);
+        
+        // Loop over each image. iptr updated at end of loop
+        iptr = image;
+        for(size_t ni=0; ni<nxyz.size(); ni++){
+
+            // Calculate whether we can skip this particular
+            // dataset / image combination ??
+            // ...
+            
+            // extract image dimensions and velocity scales
+            nx   = nxyz[ni].nx;
+            ny   = nxyz[ni].ny;
+            nz   = nxyz[ni].nz;
+            vxyi = vxy[ni];
+            if(nz > 1) vzi = vz[ni];
+
+            // loop through each spectrum of the data set
+            dptr = data;
+            wptr = wave;
+            for(size_t ns=0; ns<nspec[nd]; ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
+
+                // This initialisation is needed per spectrum
+                memset(fine, 0, NFINE*sizeof(double));
+
+                // Loop over sub-spectra to simulate finite exposures
+                int ntdiv = ndiv[nd][ns];
+                for(int nt=0; nt<ntdiv; nt++){
+
+                    // This initialisation is needed per sub-spectrum
+                    memset(tfine, 0, NFINE*sizeof(double));
+
+                    // Compute phase over uniformly spaced set from start to
+                    // end of exposure. Times are assumed to be mid-exposure
+                    phase = (time[nd][ns]+expose[nd][ns]*
+                             (float(nt)-float(ntdiv-1)/2.)/
+                             std::max(ntdiv-1,1)-tzero)/period;
+                    cosp  = cos(2.*M_PI*phase);
+                    sinp  = sin(2.*M_PI*phase);
+
+                    // Inner loops are coming, so time to pre-compute some
+                    // stuff for speed.
+
+                    // If nz > 1 (3D tomog), assume equal spaced placed in Vz
+                    // space spaced by vz symmetrically around 0 (there is in
+                    // addition an overall gamma that is added later). We work
+                    // in the fine array pixel space (denoted by p) to avoid
+                    // too many divisions by vfine in the inner loops. A pixel
+                    // with zero projected velocity should fall on the centre
+                    // of the fine array at (NFINE-1)/2. Overall systemic
+                    // velocity shifts are added later when the fine array is
+                    // added into the data array.
+
+                    pxstep = vxyi/vfine*cosp;
+                    pystep = vxyi/vfine*sinp;
+                    if(nz > 1){
+                        pzoff  = double(NFINE-1)/2. - vzi*double(nz-1)/2./vfine;
+                        pzstep = vzi/vfine;
+                    }else{
+                        pzoff  = double(NFINE-1)/2.;
+                        pzstep = 0.;
+                    }
+
+                    // We are about to loop through the image so set the image
+                    // pointer at the start of the current image. This is
+                    // incremented in the innermost loop
+                    iiptr = iptr;
+
+                    // Project onto the fine array. These are the innermost
+                    // loops which need to be as fast as possible. Each loop
+                    // initialises a pixel index and a pixel offset that are
+                    // both added to as the loop progresses. All the
+                    // projection has to do is calculate where to add into the
+                    // tfine array, check that it lies within range and add the
+                    // value in if it is. Per cycle of the innermost loop there
+                    // are 4 additions (2 integer, 2 double), 1 rounding, 
+                    // 1 conversion to an integer and 2 comparisons.
+                    for(iz=0; iz<nz; iz++, pzoff+=pzstep){
+                        for(iy=0, pyoff=pzoff-pystep*double(ny-1)/2.;
+                            iy<ny; iy++, pyoff+=pystep){
+                            for(ix=0, pxoff=pyoff-pxstep*double(nx-1)/2.;
+                                ix<nx; ix++, pxoff+=pxstep, iptr++){
+                                nf  = int(round(pxoff));
+                                if(nf >= 0 && nf < nfine) tfine[nf] += *iiptr;
+                            }
+                        }
+                    }
+
+                    // Now add in with correct weight (trapezoidal) to the
+                    // fine buffer The vxyi squared factor is to give a
+                    // similar intensity regardless of the pixel
+                    // size. i.e. the pixel intensities should be thought of
+                    // as being per (km/s)**2. The normalisation also ensures
+                    // relative independence with respect to the value of
+                    // ntdiv
+                    if(ntdiv > 1 && (nt == 0 || nt == ntdiv - 1)){
+                        weight = std::pow(vxyi,2)/(2*(ntdiv-1));
+                    }else{
+                        weight = std::pow(vxyi,2)/std::max(1,ntdiv-1);
+                    }
+                    for(nf=0; nf<nfine; nf++) fine[nf] += weight*tfine[nf];
+                }
+
+                // At this point 'fine' contains the projection of the current
+                // image for the current spectrum. We now applying the blurring.
+
+                // Take FFT of fine array
+                fftw_execute(pforw);
+
+                // multiply the FFT by the FFT of the blurring (in effect a
+                // convolution)
+                for(k=0; k<NFFT; k++)
+                    fpfft[k] *= bfft[k];
+
+                // Take the inverse FFT (?? may need normalisation by NFINE ??)
+                fftw_execute(pback);
+
+                // We now need to add the blurred array into the spectrum once
+                // for each wavelength associated with the current image. Do
+                // this by calculating the start and end velocities of each
+                // data pixel relative to the projection. The first and last
+                // pixels of the data array are ignored because we don't have
+                // the surrounding pixels needed to compute their extent.
+
+                // loop over each line associated with this image
+                for(k=0; k<wavel[ni].size(); k++){
+                    wv = wavel[ni][k];
+                    gm = gamma[ni][k];
+                    sc = wavel[ni].size() > 1 ? scale[ni][k] : 1.;
+
+                    // left-hand side of first pixel
+                    v1 = CKMS*((wptr[0]+wptr[1])/2./wv)-gm;
+
+                    // loop over every pixel in the spectrum. Could be made
+                    // more efficient by narrowing on region overlapping with
+                    // projection array ??
+                    for(m=1; m<nwave[nd]-1; m++){
+                        // velocity of right-hand side of pixel
+                        v2 = CKMS*((wptr[m]+wptr[m+1])/2./wv-1.)-gm;
+
+                        if(v1 < vmax || v2 > -vmax){
+
+                            // fp1, fp2 -- start and end limits of data pixel
+                            // in fine array pixels 
+                            fp1  = v1/vfine + double(nfine-1)/2.;
+                            fp2  = v2/vfine + double(nfine-1)/2.;
+
+                            // ifp1, ifp2 -- fine pixel range fully inside the data
+                            // in traditional C form (i.e. ifp1<= <ifp2)
+                            ifp1 = std::max(nfine,std::min(0,int(std::ceil(fp1+0.5))));
+                            ifp2 = std::max(nfine,std::min(0,int(std::ceil(fp2+0.5))));
+
+                            // add full pixels
+                            sum = 0.;
+                            for(nf=ifp1; nf<ifp2; nf++) sum += fine[nf];
+
+                            // add partial pixels
+                            if(ifp1 > 0) sum += (ifp1-0.5-fp1)*fine[ifp1-1];
+                            if(ifp2 < nfine) sum += (fp2-ifp2+1.5)*fine[ifp2-1];
+
+                            // finally add it in
+                            dptr[m] += sc*sum;
+                        }
+
+                        // move on a click
+                        v1 = v2;
+                    }
+                }
+            }
+
+            // advance the image pointer
+            iptr += nz*ny*nx;
+        }
+         
+        // advance the data and wavelength pointers
+        data += nspec[nd]*nwave[nd];
+        wave += nspec[nd]*nwave[nd];
+    }
+
+    // cleanup in reverse order of allocation
+    fftw_destroy_plan(pback);
+    fftw_destroy_plan(pforw);
+    delete[] tfine;
+    delete[] fine;
+    fftw_free(fpfft);
+    fftw_free(bfft);
+    delete[] blurr;
+}
 
 /* npix_data -- returns with the number of pixels needed to allocate memory
  * for the images in a Doppler Map.
@@ -108,19 +488,13 @@ npix_map(PyObject *Map, size_t& npix)
     return status;
 }
 
-// simple structure for containing image dimensions
-struct Nxyz{
-    Nxyz(size_t nx, size_t ny, size_t nz=1) : nx(nx), ny(ny), nz(nz) {}
-    size_t nx, ny, nz;
-};
-
 /* read_map -- reads the data contained in a PyObject representing a Doppler
  * map returning the contents in a single C-array for the image data and a
  * series of vectors for the rest of the associated information defining the
  * map. Map objects can have multiple images, and each image can have multiple
  * associated wavelengths, systemic velocities and scaling factors. This leads
  * to the vector and vector of vectors objects below. The multiple images are
- * concatenated into a single C-array for compatibility with the memsys 
+ * concatenated into a single C-array for compatibility with the memsys
  * routines.
  *
  * Arguments::
@@ -157,7 +531,7 @@ read_map(PyObject *map, float*& images, std::vector<Nxyz>& nxyz,
          std::vector<double>& vxy, std::vector<double>& vz,
          std::vector<std::vector<double> >& wave,
          std::vector<std::vector<float> >& gamma,
-         std::vector<std::vector<float> >& scale, 
+         std::vector<std::vector<float> >& scale,
          double& tzero, double& period, double& vfine, double& vpad,
          size_t& npix)
 {
@@ -443,7 +817,7 @@ update_map(float const* images, PyObject* map)
                 // get images in form that allows easy modification
                 array = (PyArrayObject*) \
                     PyArray_FromAny(idata, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 3, NPY_INOUT_ARRAY | NPY_FORCECAST, 
+                                    2, 3, NPY_INOUT_ARRAY | NPY_FORCECAST,
                                     NULL);
                 if(!array){
                     PyErr_SetString(PyExc_ValueError, "doppler.update_map:"
@@ -1043,10 +1417,12 @@ doppler_maptest(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz;
     std::vector<std::vector<double> > wave;
     std::vector<std::vector<float> > gamma, scale;
+    double tzero, period, vfine, vpad;
     size_t nipix;
 
     // read the Map
-    if(!read_map(map, images, nxyz, vxy, vz, wave, gamma, scale, nipix))
+    if(!read_map(map, images, nxyz, vxy, vz, wave, gamma, scale, 
+                 tzero, period, vfine, vpad, nipix))
         return NULL;
 
     // modify it
@@ -1085,16 +1461,17 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     }
 
     // declare the variables to hold the Map data
-    float* images;
+    float* image;
     std::vector<Nxyz> nxyz;
     std::vector<double> vxy, vz;
-    std::vector<std::vector<double> > wave;
+    std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
+    double tzero, period, vfine, vpad;
     size_t nipix;
-    double tzero, period, vfine, vpad, nipix;
+
 
     // read the Map
-    if(!read_map(map, images, nxyz, vxy, vz, wave, gamma, scale,
+    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale,
                  tzero, period, vfine, vpad, nipix))
         return NULL;
 
@@ -1113,13 +1490,15 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
                   nspec, time, expose, ndiv, fwhm))
         return NULL;
 
-    // calculate data from map ... 
+    // calculate flux equivalent to image
+    op(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, vfine, vpad,
+       flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified image back into the map
-    update_map(images, map);
+    update_map(image, map);
 
     // cleanup
-    delete[] images;
+    delete[] image;
     delete[] flux;
     delete[] ferr;
     delete[] wave;
@@ -1155,255 +1534,6 @@ init_doppler(void)
 {
     (void) Py_InitModule("_doppler", DopplerMethods);
     import_array();
-}
-
-/* op computes the image to data transform that is the heart of Doppler
- * tomography. i.e it projects the image(s) to compute data corresponding to
- * each spectrum.
- *
- * Arguments::
- *
- *  image  : multiple images, stored in a 1D array for compatibility with
- *           mem routines (input)
- *  data   : computed data, again as a 1D array for mem routines (output)
- *  nxyz   : dimensions of each image, one/image, (input)
- *  vxy    : Vx-Vy pixel size(s), one/image, (input)
- *  vz     : Vz pixel size(s), one/image, (input)
- *  wavel  : central wavelengths for each image, vector/image, (input)
- *  gamma  : systemic velocities for each wavelength, vector/image, (input)
- *  scale  : scaling factors for each wavelength, vector/image, (input)
- *  tzero  : ephemeris zero point, same units as the times (input)
- *  period : ephemeris period, same units as the times (input)
- *  vfine  : km/s to use for internal fine array
- *  vpad   : km/s to allow at each end of fine array beyond maximum extent
- *           implied by images.
- *  wave   : wavelength array, matching the data array, (input)
- *  nwave  : number of wavelengths, one/dataset [effectively an X dimension],
- *           (input)
- *  nspec  : number of spectra, one/dataset [effectively a Y dimension], (input)
- *  time   : central times for each spectrum (input)
- *  expose : exposure lengths for each spectrum (input)
- *  ndiv   : sub-division factors for each spectrum (input)
- *  fwhm   : FWHM resolutions, pixels, one/dataset, (input)
- */
-
-void op(const float* image, float* data,
-        const std::vector<Nxyz>& nxyz,
-        const std::vector<double>& vxy, const std::vector<double>& vz,
-        const std::vector<std::vector<double> >& wavel,
-        const std::vector<std::vector<float> >& gamma,
-        const std::vector<std::vector<float> >& scale,
-        double tzero, double period, double vfine, double vpad,
-        const double* wave,
-        const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
-        const std::vector<std::vector<double> >& time,
-        const std::vector<std::vector<float> >& expose,
-        const std::vector<std::vector<int> >& ndiv,
-        const std::vector<double>& fwhm){
-
-    // Each image is first projected onto a finely-spaced array which is
-    // later blurred. This should be faster than blurring each image pixel.
-    // Start by computing the size of the fine array
-    size_t nimage = nxyz.size();
-    double vmax = 0.;
-    for(int nim=0; nim<nimage; nim++){
-        size_t nx = nxyz[nim].nx;
-        size_t ny = nxyz[nim].ny;
-        size_t nz = nxyz[nim].nz;
-        vmax = std::max(std::sqrt(std:pow(vxy[nim],2)*(std::pow(nx,2)+std::pow(ny,2))+
-                                  std::pow(vz[nim]*nz,2)), vmax);
-    }
-    vmax += 2.*vpad;
-
-    // int rather than size_t because later we are going to calculate an index
-    // which can be negative
-    const int NFINE = std::max(5,size_t(vmax/vfine));
-    std::cerr << "vmax = " << vmax << ", nfine = " << nfine << std::endl;
-
-    // Grab space for fine arrays just once.
-    double *fine = new double[NFINE];
-    double *tfine = new double[NFINE];
-
-    /*
-    // blurr array stuff
-    const int nblurr = int(3.*ndiv*fwhm/vpixd);
-    const int nbtot  = 2*nblurr+1;
-    float blurr[nbtot], sigma = fwhm/Constants::EFAC;
-    float efac = Subs::sqr(vpixd/ndiv/sigma)/2.;
-    double sum=0.;
-    int k;
-    for(k = -nblurr; k<= nblurr; k++)
-    sum += (blurr[nblurr+k] = exp(-efac*k*k));
-
-    for(k=0; k< nbtot; k++)
-    blurr[k] /= sum;
-
-    size_t k;
-    float fpcon;                    // fine pixel offset
-
-    size_t yp, xp;
-    int np;
-    float fpoff, weight;
-    */
-
-
-    // local variables declared outside the loops
-
-    // pixel in fine array
-    int nf;
-
-    // phase, cosine, sine, weight factor
-    double phase, cosp, sinp, weight;
-
-    // image dimensions and indices
-    size_t nx, ny, nz, ix, iy, iz;
-
-    // image velocity steps
-    double vxyi, vzi;
-
-    // steps in fine pixels
-    double pxstep, pystep, pzstep, pxoff, pyoff, pzoff;
-
-
-    // temporary image pointer
-    float *iptr;
-
-    // scale factor map/fine
-    //double scale  = ndiv*vpix/vpixd;
-
-    // projected scale factors
-    //float pxscale, pyscale;
-
-    // large series of nested loops coming up. 
-
-    // Loop over each image
-    for(size_t ni=0; ni<nxyz.size(); ni++){
-        
-        // extract image dimensions and velocity scales
-        nx   = nxyz[ni].nx;
-        ny   = nxyz[ni].ny;
-        nz   = nxyz[ni].nz;
-        vxyi = vxy[ni];
-        if(nz > 1) vzi = vz[ni];
-
-        // Loop over each data set
-        for(size_t nd=0; nd<nspec.size(); nd++){
-
-            // Calculate whether we can skip this particular 
-            // combination of image and dataset ??
-            // ...
-
-            // loop through each spectrum of the data set
-            for(int ns=0, doff=0; ns<nspec[nd]; ns++){
-
-                // This initialisation is needed per spectrum
-                for(nf=0; nf<NFINE; nf++) fine[nf] = 0.;
-
-                // Loop over sub-spectra to simulate finite exposures
-                int ntdiv = ndiv[nd][ns];
-                for(int nt=0; nt<ntdiv; nt++){
-
-                    // This initialisation is needed per sub-spectrum
-                    for(nf=0; nf<NFINE; nf++) tfine[nf] = 0.;
-                    
-                    // Compute phase over uniformly spaced set from start to
-                    // end of exposure. Times are assumed to be mid-exposure
-                    phase = (time[nd][ns]+expose[nd][ns]*(float(nt)-float(ntdiv-1)/2.)/
-                             std::max(ntdiv-1,1)-tzero)/period;
-                    cosp  = cos(Constants::TWOPI*phase);
-                    sinp  = sin(Constants::TWOPI*phase);
-
-                    // Inner loops are coming, so time to pre-compute some
-                    // stuff for speed.
-
-                    // If nz > 1 (3D tomog), assume equal spaced placed in Vz
-                    // space spaced by vz symmetrically around 0 (there is in
-                    // addition an overall gamma that is added later). We work
-                    // in the fine array pixel space (denoted by p) to avoid
-                    // too many divisions by vfine in the inner loops. A pixel
-                    // with zero projected velocity should fall on the centre
-                    // of the fine array at (NFINE-1)/2. Overall systemic
-                    // velocity shifts are added later when the fine array is
-                    // added into the data array.
-
-                    pxstep = vxyi/vfine*cosp;
-                    pystep = vxyi/vfine*sinp;
-                    if(nz > 1){ 
-                        pzoff  = double(NFINE-1)/2. - vzi*double(nz-1)/2./vfine;
-                        pzstep = vzi/vfine;
-                    }else{
-                        pzoff  = double(NFINE-1)/2.;
-                        pzstep = 0.;
-                    }
-
-                    // We are about to loop through the image so set the image
-                    // pointer at the start of the current image. This is
-                    // incremented in the innermost loop
-                    iptr = image;
-
-                    // Project onto the fine array. These are the innermost
-                    // loops which need to be as fast as possible. Each loop
-                    // initialises a pixel index and a pixel offset that are
-                    // both added to as the loop progresses. All the
-                    // projection has to do is calculate where to add into the
-                    // tfine array, check that it lies within range and add the
-                    // value in if it is.
-                    for(iz=0; iz<nz; iz++, pzoff+=pzstep){
-                        for(iy=0, pyoff=pzoff-pystep*double(ny-1)/2.; iy<ny; iy++, pyoff+=pystep){
-                            for(ix=0, pxoff=pyoff-pxstep*double(nx-1)/2.; ix<nx; ix++, pxoff+=pxstep, iptr++){
-                                nf  = int(round(pxoff));
-                                if(nf >= 0 && nf < NFINE) tfine[nf] += *iptr;
-                            }
-                        }
-                    }
-
-                    
-                    // Now add in with correct weight (trapezoidal) to the
-                    // fine buffer The vxyi squared factor is to give a
-                    // similar intensity regardless of the pixel
-                    // size. i.e. the pixel intensities should be thought of
-                    // as being per (km/s)**2. The normalisation also ensures
-                    // relative independence with respect to the value of
-                    // ntdiv
-                    if(ntdiv > 1 && (nt == 0 || nt == ntdiv - 1)){
-                        weight = std::pow(vxyi,2)/(2*(ntdiv-1));
-                    }else{
-                        weight = std::sqr(vxyi,2)/std::max(1,ntdiv-1);
-                    }
-                    for(nf=0; nf<NFINE; nf++) fine[nf] += weight*tfine[nf];
-                }
-
-                // At this point to have calculated the projection of the current
-                // image for the current spectrum. We now need to add it in to the
-                // spectrum, possibly several times over because each image can
-                // be associated with more than one atomic line. 
-
-                // ?? old code from here needs modifying
-
-                // Blurr and bin into output spectrum
-                for(i=0; i<npixd; i++){
-                    sum = 0.;
-                    off = ndiv*i;
-                    for(l=off; l<off+ndiv; l++){
-                        for(k = 0, j=l-nblurr; k<nbtot; k++, j++)
-                            if(j >= 0 && j < nfine) sum += blurr[k]*fine[j];
-                    }
-                    data[doff++] = sum;
-                }
-            }
-
-            // advance the data and wavelength pointers
-            data += nspec[nd]*nwave[nd];
-            wave += nspec[nd]*nwave[nd];
-        }
-
-        // advance the image pointer
-        image += nz*ny*nx;
-    }
-
-    // cleanup
-    delete[] tfine;
-    delete[] fine;
 }
 
 /*
