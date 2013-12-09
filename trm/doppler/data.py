@@ -21,22 +21,45 @@ class Spectra(object):
     Attributes:
 
       flux : flux densities in the form of a 2D array, wavelength along
-             X-axis, Y-values represent different times. These should
-             usually have been continuum subtracted.
+             X-axis, Y-values represent different times. These should usually
+             have been continuum subtracted.
 
       ferr : uncertainties on the flux densities, 2D array matching flux
 
-      wave : wavelengths, 2D array matching flux. These should be tied to
-             a constant or near-enough constant zeropoint (e.g. heliocentric
-             or better still, barycentric)
+      wave : wavelengths, 2D array matching flux. These should be tied to a
+             constant or near-enough constant zeropoint (e.g. heliocentric or
+             better still, barycentric). The wavelengths should be
+             monotonically increasing and vary smoothly with index. If there
+             are jumps, you should split the dataset into multiple. Invert the
+             order (easy in Python) if your wavelength scale decreases with
+             index number, e.g. wave = wave[:,::-1], flux = flux[:,::-1] etc.
+             Finally the wavelengths for each spectrum can vary, hence the 2D
+             array, but it is assumed that they are similar. The expectation
+             is that the wavelengths come from a sequence of spectra taken
+             over a few nights with the same setup. They may drift by a few
+             pixels, but should not differ radically from each other. If they
+             do, you should be splitting into multiple datasets.
 
-      time : times at centre of each spectrum
+      time : times at the middle of each exposure. Any units as long as they
+             match the ephemeris specified in the associated Map. Typically
+             BTDB in days.  No order required. The number of times should
+             match the first (Y) dimension of flux.
 
-      expose : length of each spectrum
+      expose : length of each spectrum. Same units as the times. These are
+               always needed but only used if the ndiv factors (see next) are
+               > 1. Same size as 'time'
 
-      ndiv : sub-division factors for accounting for finite exposures
 
-      fwhm : FWHM of point spread function of spectra, in terms of pixels.
+      ndiv : sub-division factors for accounting for finite exposures. The
+             projections are computed at a series of phases equally spaced
+             from the start to the end of the exposure and trapezoidally
+             averaged. Same size as 'time'.
+
+      fwhm : FWHM of point spread function of spectra, km/s. If you think this
+             varies significantly across your dataset, then you might want to
+             split the dataset into chunks. Specifying in km/s rather than
+             pixels is necessary for fast computation of the image to data
+             transform.
     """
 
     def __init__(self, flux, ferr, wave, time, expose, ndiv, fwhm):
@@ -69,6 +92,11 @@ class Spectra(object):
         if len(ndiv.shape) != 1 or flux.shape[0] != len(ndiv):
             raise DopplerError('Data.__init__: flux and ndiv have' +
                                ' conflicting sizes')
+
+        # check wavelengths are monotonically increasing
+        diff = wave[:,1:]-wave[:,:-1]
+        if not (diff > 0).all():
+            raise DopplerError('Data.__init__: wavelengths must be monotonically increasing')
 
         # Manipulate data types for efficiency savings when calling
         # the C++ interface routines.
