@@ -7,27 +7,99 @@ from astropy.io import fits
 
 from core import *
 
+class Default (object):
+    """
+    Class defining the way in which the default image is computed.
+    Main attribute is called 'option' which can have the following values:
+
+      UNIFORM   : uniform default
+      GAUSS2D   : Gaussian blurr default for 2D images
+      GAUSS3D   : Gaussian blurr default for 3D images
+
+    """
+    UNIFORM  = 1
+    GAUSS2D  = 2
+    GAUSS3D  = 3
+
+    def __init__(self, option, *args):
+        """
+        Creates a Default. 
+
+        option = UNIFORM needs no other arguments.
+        option = GAUSS2D need the FWHM blurr to use over Vx-Vy (in km/s)
+        option = GAUSS3D need the FWHM blurr to use over Vx-Vy (in km/s) AND another FWHM to use
+                 in the Vz direction, also km/s.
+
+        See also Default.uniform, Default.gauss2D, Default.gauss3d
+        """
+        self.option = option
+        if option == Default.GAUSS2D and len(args) == 1:
+            self.fwhmxy = args[0]
+        elif option == Default.GAUSS3D and len(args) == 2:
+            self.fwhmxy = args[0]
+            self.fwhmz  = args[1]
+        elif option != Default.UNIFORM:
+            raise DopplerError('Default.__init__: invalid option and/or wrong number of arguments.')
+        
+    @classmethod
+    def uniform(cls):
+        "Returns a uniform Default object"
+        return cls(Default.UNIFORM)
+
+    @classmethod
+    def gauss2d(cls, fwhmxy):
+        "Returns a gaussian Default object for a 2D image"
+        return cls(Default.GAUSS2D, fwhmxy)
+
+    @classmethod
+    def gauss3d(cls, fwhmxy, fwhmz):
+        "Returns a gaussian Default object for a 3D image"
+        return cls(Default.GAUSS3D, fwhmxy, fwhmz)
+
+    def __repr__(self):
+        """
+        Returns a string representation of the Default
+        """
+        rep = 'Default(option=' + repr(self.option)
+        if self.option == Default.UNIFORM:
+            return rep + ')'
+        elif self.option == Default.GAUSS2D:
+            return rep + ',fwhmxy=' + repr(self.fwhmxy) + ')'
+        elif self.option == Default.GAUSS3D:
+            return rep + ', fwhmxy=' + repr(self.fwhmxy) + ', fwhmz=' + repr(self.fwhmz) + ')'
+
 class Image(object):
     """
-    This class contains the data associated with one image, including the
-    wavelength of the line or lines associated with the image, and any
-    associated scaling factors, and the velocity scales of the image. 2D
-    images have square pixels in velocity space VXY on a side. 3D images can
-    be thought of as a series of 2D images spaced by VZ. The following
-    attributes are set::
+    This class contains all the information needed to specify a single image,
+    including the wavelength of the line or lines associated with the image,
+    systemic velocities, scaling factors, velocity scales of the image,
+    default parameters. 2D images have square pixels in velocity space VXY on
+    a side. 3D images can be thought of as a series of 2D images spaced by
+    VZ. 
 
-      data   : the image data array, 2D or 3D
-      wave   : array of associated wavelengths (will be an array even if
-               only 1 value)
-      gamma  : array of systemic velocities, one per wavelength
-      vxy    : pixel size in Vx-Vy plane, km/s, square.
-      scale  : scale factors to use if len(wave) > 1 (will still be defined
-               but probably = None otherwise)
-      vz     : km/s in vz direction if data.ndim == 3 (will still be defined
-               but probably = None otherwise)
+    The following attributes are set::
+
+      data    : the image data array, 2D or 3D.
+
+      wave    : array of associated wavelengths (will be an array even if
+                only 1 value)
+
+      gamma   : array of systemic velocities, one per wavelength
+
+      default : a Default object defining how the default is calculated for 
+                mem.
+
+      vxy     : pixel size in Vx-Vy plane, km/s, square.
+
+      scale   : scale factors to use if len(wave) > 1 (will still be defined
+                but probably = None otherwise)
+
+      vz      : km/s in vz direction if data.ndim == 3 (will still be defined
+                but probably = None otherwise)
+
     """
 
-    def __init__(self, data, vxy, wave, gamma, scale=None, vz=None):
+    def __init__(self, data, vxy, wave, gamma, default, scale=None, vz=None):
         """
         Defines an Image. Arguments::
 
@@ -42,6 +114,9 @@ class Image(object):
                  single float or an array.
 
           gamma : systemic velocity or velocities for each lines, km/s
+
+          default : how to calculate the default image during mem iterations. This
+                    should be a Default object.
 
           scale : if there are multiple lines modelled by this Image (e.g. the
                   Balmer series) then you must supply scaling factors to be
@@ -62,6 +137,7 @@ class Image(object):
         self.vxy  = vxy
         self.vz   = vz
 
+        # wavelengths
         if isinstance(wave, np.ndarray):
             if wave.ndim > 1:
                 raise DopplerError('Image.__init__: wave can at most' +
@@ -70,6 +146,7 @@ class Image(object):
         else:
             self.wave = np.array([float(wave),])
 
+        # systemic velocities
         if isinstance(gamma, np.ndarray):
             if gamma.ndim > 1:
                 raise DopplerError('Image.__init__: gamma can at most' +
@@ -79,9 +156,21 @@ class Image(object):
             self.gamma = np.array([float(gamma),],dtype=np.float32)
 
         if len(self.gamma) != len(self.wave):
-                raise DopplerError('Image.__init__: gamma and wave must' +
-                                   ' match in size')
+            raise DopplerError('Image.__init__: gamma and wave must' +
+                               ' match in size')
 
+        # default
+
+        if not isinstance(default, Default):
+            raise DopplerError('Image.__init__: default must be a Default object')
+
+        if (default.option == Default.GAUSS2D and data.ndim == 3) or \
+                (default.option == Default.GAUSS3D and data.ndim == 2):
+            raise DopplerError('Image.__init__: default option must match image dimension, e.g. GAUSS2D for 2D images')
+
+        self.default = default
+
+        # scale factors
         if isinstance(scale, np.ndarray):
             if scale.ndim > 1:
                 raise DopplerError('Image.__init__: scale can at most' +
@@ -107,7 +196,7 @@ class Image(object):
 
         # create header which contains all but the actual data array
         head = fits.Header()
-        head['TYPE'] = 'doppler.Image'
+        head['TYPE'] = ('doppler.Image', 'Python object type')
         head['VXY']  = (self.vxy, 'Vx-Vy pixel size, km/s')
         if self.data.ndim == 3:
             head['VZ']  = (self.vz, 'Vz pixel size, km/s')
@@ -123,6 +212,16 @@ class Image(object):
             head['WAVE1']  = (self.wave[0], 'Central wavelength')
             head['GAMMA1'] = (self.gamma[0], 'Systemic velocity, km/s')
 
+        if self.default.option == Default.UNIFORM:
+            head['DEFAULT'] = ('Uniform', 'Default option')
+        elif self.default.option == Default.GAUSS2D:
+            head['DEFAULT'] = ('Gaussian', 'Default option')
+            head['FWHMXY']  = (self.default.fwhmxy, 'Vx-Vy blurring, km/s')
+        elif self.default.option == Default.GAUSS3D:
+            head['DEFAULT'] = ('Gaussian', 'Default option')
+            head['FWHMXY']  = (self.default.fwhmxy, 'Vx-Vy blurring, km/s')
+            head['FWHMZ']   = (self.default.fwhmz, 'Vz blurring, km/s')
+
         # ok return with ImageHDU
         return fits.ImageHDU(self.data,head)
 
@@ -135,9 +234,11 @@ class Image(object):
         data = hdu.data
         head = hdu.header
         if 'VXY' not in head or 'NWAVE' not in head \
-                or 'WAVE1' not in head or 'GAMMA1' not in head:
+                or 'WAVE1' not in head or 'GAMMA1' not in head \
+                or 'DEFAULT' not in head:
             raise DopplerError('Image.fromHDU: one or more of' +
-                               ' VXY, NWAVE, WAVE1, GAMMA1 not found in HDU')
+                               ' VXY, NWAVE, WAVE1, GAMMA1, ' +
+                               'DEFAULT not found in HDU header')
 
         vxy = head['VXY']
         if data.ndim == 3:
@@ -155,13 +256,25 @@ class Image(object):
             if nwave > 1:
                 scale[n] = head['SCALE' + str(n+1)]
 
-        return cls(data, vxy, wave, gamma, scale, vz)
+        if head['DEFAULT'] == 'Uniform':
+            default = Default.uniform()
+        elif head['DEFAULT'] == 'Gaussian':
+            if data.ndim == 2:
+                if 'FWHMXY' not in head:
+                    raise DopplerError('Image.fromHDU: could not find FWHMXY')
+                default = Default.gauss2d(head['FWHMXY'])
+            else:
+                if 'FWHMXY' not in head or 'FWHMZ' not in head:
+                    raise DopplerError('Image.fromHDU: could not find FWHMXY and/or FWHMZ')
+                default = Default.gauss2d( head['FWHMXY'], head['FWHMZ'])
+
+        return cls(data, vxy, wave, gamma, default, scale, vz)
 
     def __repr__(self):
         return 'Image(data=' + repr(self.data) + \
             ', vxy=' + repr(self.vxy) + ', wave=' + repr(self.wave) + \
-            ', gamma=' + repr(self.gamma) + ', scale=' + repr(self.scale) + \
-            ', vz=' + repr(self.vz) + ')'
+            ', gamma=' + repr(self.gamma) + ', default=' + repr(self.default) + \
+            ', scale=' + repr(self.scale) + ', vz=' + repr(self.vz) + ')'
 
 class Map(object):
     """
@@ -305,22 +418,26 @@ if __name__ == '__main__':
     data1 += np.exp(-(((X+300.)/200.)**2+((Y+500.)/200.)**2)/2.)
     wave1  = np.array((486.2, 434.0))
     gamma1 = np.array((100., 100.))
+    def1   = Default.gauss2d(200.)
     scale1 = np.array((1.0, 0.5))
-    image1 = Image(data1, vxy, wave1, gamma1, scale1)
+    image1 = Image(data1, vxy, wave1, gamma1, def1, scale1)
 
     data2  = np.exp(-(((X+300.)/200.)**2+((Y+300.)/200.)**2)/2.)
     wave2  = 468.6
     gamma2 = 150.
-    image2 = Image(data2, vxy, wave2, gamma2)
+    def2   = Default.gauss2d(200.)
+    image2 = Image(data2, vxy, wave2, gamma2, def2)
 
     tzero   =  2550000.
     period  =  0.15
     vfine   =  10.
     vpad    =  200.
 
+    print 'image2.default =',image2.default
+
     # create the Map
     map = Map(head,[image1,image2],tzero,period,vfine,vpad)
-
+    
     # write to fits
     map.wfits('test.fits')
 
