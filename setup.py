@@ -27,7 +27,7 @@ doppler = Extension('trm.doppler._doppler',
                     include_dirs    = include_dirs,
                     library_dirs    = library_dirs,
                     runtime_library_dirs = library_dirs,
-                    libraries       = ['subs'],
+                    libraries       = ['mem', 'fftw3', 'm'],
                     sources         = [os.path.join('trm', 'doppler', 'doppler.cc')])
 
 setup(name='trm.doppler',
