@@ -62,8 +62,8 @@ struct Nxyz{
  *  tzero  : ephemeris zero point, same units as the times (input)
  *  period : ephemeris period, same units as the times (input)
  *  vfine  : km/s to use for internal fine array (input)
- *  vpad   : km/s to allow at each end of fine array beyond maximum extent
- *           implied by images. (input)
+ *  sfac   : global scaling factor
+ *
  *  data   : computed data, again as a 1D array for mem routines (output)
  *  wave   : wavelength array, matching the data array, (input)
  *  nwave  : number of wavelengths, one/dataset [effectively an X dimension],
@@ -74,7 +74,7 @@ struct Nxyz{
  *  ndiv   : sub-division factors for each spectrum (input)
  *  fwhm   : FWHM resolutions, kms/s, one/dataset, (input)
  *
- * Note the arguments 'image' through to 'vpad' are associated with the
+ * Note the arguments 'image' through to 'sfac' are associated with the
  * Doppler map file, while the rest are associated with the data. 'data' is
  * the only output argument.
  */
@@ -84,7 +84,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<double> >& wavel,
         const std::vector<std::vector<float> >& gamma,
         const std::vector<std::vector<float> >& scale,
-        double tzero, double period, double vfine, double vpad,
+        double tzero, double period, double vfine, double sfac,
         float* data, const double* wave,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
         const std::vector<std::vector<double> >& time,
@@ -92,10 +92,26 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<int> >& ndiv,
         const std::vector<double>& fwhm){
 
-    // Each image is first projected onto a finely-spaced array which is later
-    // blurred. This should be faster than blurring each image pixel since
-    // multiple image pixels end in the same fine array pixel provided it is
-    // not made too fine. Start by computing the size of the fine array
+    // Each image is first projected onto a finely-spaced array which is
+    // blurred once the projection is finished and then added into the output
+    // data array.
+
+    // We first need to know how many pixels are needed for the blurring
+    // function. Loop over the data sets to compute the maximum. Also take
+    // chance to compute number of data pixels.
+    size_t nblurr = 0, ndpix = 0;
+    double psigma;
+    for(size_t nd=0; nd<nspec.size(); nd++){
+        // sigma of blurring in terms of fine array pixels
+        psigma = fwhm[nd]/vfine/EFAC;
+
+        // total blurr width will be 2*nblurr-1
+        nblurr = std::max(nblurr,size_t(round(6.*psigma)+1));
+        ndpix += nwave[nd]*nspec[nd];
+    }
+
+    // Now calculate vmax = 2*(maximum projected velocity) of any pixel
+    // relative to the (possibly gamma shifted) line centre
     size_t nimage = nxyz.size(), nx, ny, nz;
     double vmax = 0.;
     for(size_t nim=0; nim<nimage; nim++){
@@ -111,28 +127,16 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                                       *(std::pow(nx,2)+std::pow(ny,2))), vmax);
         }
     }
-    vmax += 2.*vpad;
 
-    // NFINE is the number of pixels needed for the fine array.
-    const int nfine = std::max(5,int(std::ceil(vmax/vfine)));
+    // NFINE is the number of pixels needed for the fine array at its maximum
+    // which should be enough in all cases even if its too many on occasion.
+    // We add in extra pixels beyond the maximum velocity in order to allow
+    // for blurring.
+    const int nfine = std::max(5,int(std::ceil(vmax/vfine)+2*nblurr));
 
-    // adjust vmax to be the maximum velocity of the fine array (from zero not
-    // full extent)
+    // adjust vmax to be the maximum velocity of the fine array measured
+    // from zero.
     vmax = nfine*vfine/2.;
-
-    // Now we need to know how many pixels at most are needed for the blurring
-    // function. Loop over the data sets. Also take chance to compute number
-    // of data pixels
-    size_t nblurr = 0, ndpix = 0;
-    double psigma;
-    for(size_t nd=0; nd<nspec.size(); nd++){
-        // sigma of blurring in terms of fine array pixels
-        psigma = fwhm[nd]/vfine/EFAC;
-
-        // total blurr width will be 2*nblurr-1
-        nblurr = std::max(nblurr,size_t(round(6.*psigma)+1));
-        ndpix += nwave[nd]*nspec[nd];
-    }
 
     // The blurring is carried out with FFTs requiring zero padding.  Thus the
     // actual number of pixels to grab is the nearest power of 2 larger than
@@ -170,7 +174,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     // various local variables
     size_t k, m, n;
     double norm, prf, fp1, fp2, v1, v2, sum;
-    double wv, sc;
+    double w1, w2, wv, sc;
     float gm;
 
     // pixel index in fine array
@@ -200,10 +204,9 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     // Loop over each data set
     for(size_t nd=0; nd<nspec.size(); nd++){
 
-        // compute blurring array (specific to the dataset
-        // so can't be done earlier). End by FFT-ing it in order
-        // to perform the convolution later.
-        memset(blurr, 0, NFINE*sizeof(double));
+        // compute blurring array (specific to the dataset so can't be done
+        // earlier). End by FFT-ing it in order to perform the convolution
+        // later.
         norm = blurr[0] = 1.;
         psigma = fwhm[nd]/vfine/EFAC;
         for(m=1, n=NFINE-1; m<nblurr; m++, n--){
@@ -212,14 +215,20 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
             norm += 2.*prf;
         }
 
+        // zero the centre part
+        memset(blurr+nblurr, 0, (NFINE-2*nblurr+1)*sizeof(double));
+
         // Next line gets overall FFT/iFFT normalisation right
-        // cutting out any need to normalise by NFINE later
+        // cutting out the need to normalise by NFINE later
         norm *= NFINE;
 
         // normalise
-        for(m=0;m<NFINE;m++)
+        blurr[0] /= norm;
+        for(m=1, n=NFINE-1; m<nblurr; m++, n--){
             blurr[m] /= norm;
-        
+            blurr[n] /= norm;
+        }
+
         // take FFT
         fftw_execute(pblurr);
 
@@ -228,8 +237,30 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         for(size_t ni=0; ni<nxyz.size(); ni++){
 
             // Calculate whether we can skip this particular
-            // dataset / image combination ??
-            // ...
+            // dataset / image combination because we can save
+            // much fuss now if we can
+            bool skip = true;
+            for(size_t nw=0; nw<wavel[ni].size(); nw++){
+                wv = wavel[ni][nw];
+                gm = gamma[ni][nw];
+
+                wptr = wave;
+                for(size_t ns=0; ns<nspec[nd]; ns++, wptr+=nwave[nd]){
+                    w1 = wptr[0];
+                    w2 = wptr[nwave[nd]-1];
+                    v1 = CKMS*(w1/wv-1.)-gm;
+                    v2 = CKMS*(w2/wv-1.)-gm;
+
+                    // test for overlap. If yes, break the loop because
+                    // we can't skip 
+                    if(v1 < vmax && v2 > -vmax){
+                        skip = false;
+                        break;
+                    }
+                }
+                if(!skip) break;
+            }
+            if(skip) continue;
             
             // extract image dimensions and velocity scales
             nx   = nxyz[ni].nx;
@@ -332,8 +363,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
-                for(k=0; k<NFFT; k++)
-                    fpfft[k] *= bfft[k];
+                for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
 
                 // Take the inverse FFT
                 fftw_execute(pback);
@@ -349,14 +379,13 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 for(k=0; k<wavel[ni].size(); k++){
                     wv = wavel[ni][k];
                     gm = gamma[ni][k];
-                    sc = wavel[ni].size() > 1 ? scale[ni][k] : 1.;
+                    sc = wavel[ni].size() > 1 ? sfac*scale[ni][k] : sfac;
 
                     // left-hand side of first pixel
                     v1 = CKMS*((wptr[0]+wptr[1])/2./wv)-gm;
 
-                    // loop over every pixel in the spectrum. Could be made
-                    // more efficient by narrowing on region overlapping with
-                    // projection array although its probably not the CPU hog
+                    // loop over every pixel in the spectrum, except
+                    // first and last.
                     for(m=1; m<nwave[nd]-1; m++){
                         // velocity of right-hand side of pixel
                         v2 = CKMS*((wptr[m]+wptr[m+1])/2./wv-1.)-gm;
@@ -381,7 +410,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                             if(ifp1 > 0) sum += (ifp1-0.5-fp1)*fine[ifp1-1];
                             if(ifp2 < nfine) sum += (fp2-ifp2+0.5)*fine[ifp2];
 
-                            // finally add it in
+                            // finally add it in with scaling
                             dptr[m] += sc*sum;
                         }
 
@@ -426,8 +455,8 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
  *  tzero  : ephemeris zero point, same units as the times (input)
  *  period : ephemeris period, same units as the times (input)
  *  vfine  : km/s to use for internal fine array (input)
- *  vpad   : km/s to allow at each end of fine array beyond maximum extent
- *           implied by images. (input)
+ *  sfac   : global scaling factor to keep numbers within nice range
+ *
  *  data   : computed data, again as a 1D array for mem routines (input)
  *  wave   : wavelength array, matching the data array, (input)
  *  nwave  : number of wavelengths, one/dataset [effectively an X dimension],
@@ -438,7 +467,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
  *  ndiv   : sub-division factors for each spectrum (input)
  *  fwhm   : FWHM resolutions, kms/s, one/dataset, (input)
  *
- * Note the arguments 'image' through to 'vpad' are associated with the
+ * Note the arguments 'image' through to 'vfine' are associated with the
  * Doppler map file, while the rest are associated with the data. 'data' is
  * the only output argument.
  */
@@ -448,7 +477,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<double> >& wavel,
         const std::vector<std::vector<float> >& gamma,
         const std::vector<std::vector<float> >& scale,
-        double tzero, double period, double vfine, double vpad,
+        double tzero, double period, double vfine, double sfac,
         const float* data, const double* wave,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
         const std::vector<std::vector<double> >& time,
@@ -457,12 +486,24 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<double>& fwhm){
 
     // See op for what is going on. This routine computes a transposed version
-    // which is hard to explain except by saying here we carry out the transpose
-    // of what happens in op. The actual code ends up looking very similar, with
-    // the main change being a reversal of ordering. First change occurs here
-    // where we tot up the total number of image pixels for a later zeroing
-    // compare with op where this is done for the data instead.
-    // In the rest of the code "[cf op]" indicates a difference wrt op
+    // which is hard to explain except by saying "here we carry out the
+    // transpose of what happens in op". The actual code ends up looking very
+    // similar, bar a reversal of ordering. 
+
+    // Now we need to know how many pixels at most are needed for the blurring
+    // function. Loop over the data sets. Note that cf op, we don't compute
+    // number of data pixels
+    size_t nblurr = 0;
+    double psigma;
+    for(size_t nd=0; nd<nspec.size(); nd++){
+        // sigma of blurring in terms of fine array pixels
+        psigma = fwhm[nd]/vfine/EFAC;
+
+        // total blurr width will be 2*nblurr-1
+        nblurr = std::max(nblurr,size_t(round(6.*psigma)+1));
+    }
+
+    // cf op: we compute number of *image* pixels
     size_t nimage = nxyz.size(), nx, ny, nz, nipix=0;
     double vmax = 0.;
     for(size_t nim=0; nim<nimage; nim++){
@@ -479,27 +520,13 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         }
         nipix += nx*ny*nz;
     }
-    vmax += 2.*vpad;
 
     // NFINE is the number of pixels needed for the fine array.
-    const int nfine = std::max(5,int(std::ceil(vmax/vfine)));
+    const int nfine = std::max(5,int(std::ceil(vmax/vfine)+2*nblurr));
 
     // adjust vmax to be the maximum velocity of the fine array (from zero not
     // full extent)
     vmax = nfine*vfine/2.;
-
-    // Now we need to know how many pixels at most are needed for the blurring
-    // function. Loop over the data sets. Also take chance to compute number
-    // of data pixels
-    size_t nblurr = 0;
-    double psigma;
-    for(size_t nd=0; nd<nspec.size(); nd++){
-        // sigma of blurring in terms of fine array pixels
-        psigma = fwhm[nd]/vfine/EFAC;
-
-        // total blurr width will be 2*nblurr-1
-        nblurr = std::max(nblurr,size_t(round(6.*psigma)+1));
-    }
 
     // The blurring is carried out with FFTs requiring zero padding.  Thus the
     // actual number of pixels to grab is the nearest power of 2 larger than
@@ -537,7 +564,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     // various local variables
     size_t k, m, n;
     double norm, prf, fp1, fp2, v1, v2;
-    double wv, sc, add;
+    double w1, w2, wv, sc, add;
     float gm;
 
     // pixel index in fine array
@@ -570,7 +597,6 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         // compute blurring array (specific to the dataset
         // so can't be done earlier). End by FFT-ing it in order
         // to perform the convolution later.
-        memset(blurr, 0, NFINE*sizeof(double));
         norm = blurr[0] = 1.;
         psigma = fwhm[nd]/vfine/EFAC;
         for(m=1, n=NFINE-1; m<nblurr; m++, n--){
@@ -579,13 +605,19 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
             norm += 2.*prf;
         }
 
+        // zero the centre part
+        memset(blurr+nblurr, 0, (NFINE-2*nblurr+1)*sizeof(double));
+
         // Next line gets overall FFT/iFFT normalisation right
         // cutting out any need to normalise by NFINE later
         norm *= NFINE;
 
         // normalise
-        for(m=0; m<NFINE; m++)
+        blurr[0] /= norm;
+        for(m=1, n=NFINE-1; m<nblurr; m++, n--){
             blurr[m] /= norm;
+            blurr[n] /= norm;
+        }
 
         // take FFT
         fftw_execute(pblurr);
@@ -595,8 +627,30 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         for(size_t ni=0; ni<nxyz.size(); ni++){
 
             // Calculate whether we can skip this particular
-            // dataset / image combination ??
-            // ...
+            // dataset / image combination because we can save
+            // much fuss now if we can
+            bool skip = true;
+            for(size_t nw=0; nw<wavel[ni].size(); nw++){
+                wv = wavel[ni][nw];
+                gm = gamma[ni][nw];
+
+                wptr = wave;
+                for(size_t ns=0; ns<nspec[nd]; ns++, wptr+=nwave[nd]){
+                    w1 = wptr[0];
+                    w2 = wptr[nwave[nd]-1];
+                    v1 = CKMS*(w1/wv-1.)-gm;
+                    v2 = CKMS*(w2/wv-1.)-gm;
+
+                    // test for overlap. If yes, break the loop because
+                    // we can't skip 
+                    if(v1 < vmax && v2 > -vmax){
+                        skip = false;
+                        break;
+                    }
+                }
+                if(!skip) break;
+            }
+            if(skip) continue;
             
             // extract image dimensions and velocity scales
             nx   = nxyz[ni].nx;
@@ -619,14 +673,12 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                 for(k=0; k<wavel[ni].size(); k++){
                     wv = wavel[ni][k];
                     gm = gamma[ni][k];
-                    sc = wavel[ni].size() > 1 ? scale[ni][k] : 1.;
+                    sc = wavel[ni].size() > 1 ? sfac*scale[ni][k] : sfac;
 
                     // left-hand side of first pixel
                     v1 = CKMS*((wptr[0]+wptr[1])/2./wv)-gm;
 
-                    // loop over every pixel in the spectrum. Could be made
-                    // more efficient by narrowing on region overlapping with
-                    // projection array although its probably not the CPU hog
+                    // loop over every pixel in the spectrum. 
                     for(m=1; m<nwave[nd]-1; m++){
                         // velocity of right-hand side of pixel
                         v2 = CKMS*((wptr[m]+wptr[m+1])/2./wv-1.)-gm;
@@ -1015,7 +1067,7 @@ namespace Dopp {
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, vpad;
+    double tzero, period, vfine, sfac;
 
     // For Data objects
     std::vector<size_t> nwave, nspec;
@@ -1034,7 +1086,7 @@ void Mem::opus(const int j, const int k){
     
     op(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::tzero, Dopp::period,
-       Dopp::vfine, Dopp::vpad, 
+       Dopp::vfine, Dopp::sfac, 
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
 }
@@ -1047,7 +1099,7 @@ void Mem::tropus(const int k, const int j){
     
     tr(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::tzero, Dopp::period,
-       Dopp::vfine, Dopp::vpad, 
+       Dopp::vfine, Dopp::sfac, 
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
 }
@@ -1169,7 +1221,7 @@ npix_map(PyObject *Map, size_t& npix)
  *  tzero   :  zeropoint of ephemeris (output)
  *  period  :  period of ephemeris (output)
  *  vfine   :  km/s for fine projection array (output)
- *  vpad    :  km/s extra padding for fine array (output)
+ *  sfac    :  global scaling factor (output)
  *
  *  Returns true/false according to success. If false, the outputs above
  *  will be useless. If false, a Python exception is raised and you should
@@ -1186,7 +1238,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
          std::vector<std::vector<float> >& scale,
          std::vector<int>& def, std::vector<double>& fwhmxy,
          std::vector<double>& fwhmz, double& tzero, 
-         double& period, double& vfine, double& vpad)
+         double& period, double& vfine, double& sfac)
 {
 
     bool status = false;
@@ -1201,7 +1253,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     // initialise attribute pointers
     PyObject *data=NULL, *image=NULL, *idata=NULL, *iwave=NULL;
     PyObject *igamma=NULL, *ivxy=NULL, *iscale=NULL, *ivz=NULL;
-    PyObject *itzero=NULL, *iperiod=NULL, *ivfine=NULL, *ivpad=NULL;
+    PyObject *itzero=NULL, *iperiod=NULL, *ivfine=NULL, *isfac=NULL;
     PyObject *idef=NULL, *doption=NULL, *dfwhmxy=NULL, *dfwhmz=NULL;
     PyArrayObject *darray=NULL, *warray=NULL, *garray=NULL;
     PyArrayObject *sarray=NULL;
@@ -1221,13 +1273,13 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     itzero  = PyObject_GetAttrString(map, "tzero");
     iperiod = PyObject_GetAttrString(map, "period");
     ivfine  = PyObject_GetAttrString(map, "vfine");
-    ivpad   = PyObject_GetAttrString(map, "vpad");
+    isfac   = PyObject_GetAttrString(map, "sfac");
     data    = PyObject_GetAttrString(map, "data");
 
-    if(!itzero || !iperiod || !ivfine || !ivpad || !data){
+    if(!itzero || !iperiod || !ivfine || !isfac || !data){
         PyErr_SetString(PyExc_ValueError,
                         "doppler.read_map: one or more of "
-                        "data, tzero, period, vfine, vpad is missing");
+                        "data, tzero, period, vfine, sfac is missing");
         goto failed;
     }
 
@@ -1242,7 +1294,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     tzero  = PyFloat_AsDouble(itzero);
     period = PyFloat_AsDouble(iperiod);
     vfine  = PyFloat_AsDouble(ivfine);
-    vpad   = PyFloat_AsDouble(ivpad);
+    sfac   = PyFloat_AsDouble(isfac);
 
     // define scope to avoid compilation error
     {
@@ -1427,7 +1479,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     Py_XDECREF(image);
 
     Py_XDECREF(data);
-    Py_XDECREF(ivpad);
+    Py_XDECREF(isfac);
     Py_XDECREF(ivfine);
     Py_XDECREF(iperiod);
     Py_XDECREF(itzero);
@@ -2058,11 +2110,11 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, vpad;
+    double tzero, period, vfine, sfac;
 
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, vfine, vpad)){
+                 def, fwhmxy, fwhmz, tzero, period, vfine, sfac)){
         delete [] image;
         return NULL;
     }
@@ -2088,8 +2140,8 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     }
 
     // calculate flux equivalent to image
-    op(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, vfine, vpad,
-       flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
+    op(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, 
+       vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified data back into flux array
     update_data(flux, data);
@@ -2134,11 +2186,11 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, vpad;
+    double tzero, period, vfine, sfac;
 
     // read the Map
     if(!read_map(map, input, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, vfine, vpad)){
+                 def, fwhmxy, fwhmz, tzero, period, vfine, sfac)){
         delete [] output;
         delete [] input;
         return NULL;
@@ -2197,11 +2249,11 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, vpad;
+    double tzero, period, vfine, sfac;
 
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, 
-                 def, fwhmxy, fwhmz, tzero, period, vfine, vpad))
+                 def, fwhmxy, fwhmz, tzero, period, vfine, sfac))
         return NULL;
 
     // declare the variables to hold the Data data
@@ -2220,8 +2272,8 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
 
     // overwriting image
-    tr(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, vfine, vpad,
-       flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
+    tr(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, 
+       vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified image back into the map
     update_map(image, map);
@@ -2278,7 +2330,7 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
                  Dopp::wavel, Dopp::gamma, Dopp::scale,
                  Dopp::def, Dopp::fwhmxy, Dopp::fwhmz, 
                  Dopp::tzero, Dopp::period, Dopp::vfine, 
-                 Dopp::vpad)){
+                 Dopp::sfac)){
         delete[] Dopp::wave;
         delete[] Mem::Gbl::st;
         return NULL;
