@@ -20,6 +20,18 @@ def sameDims(arr1, arr2):
 
     return True
 
+def afits(fname):
+    """
+    Appends .fits to a filename if it does not end
+    with .fits, .fit, .fits.gz or .fit.gz
+    """
+    # Write to a fits file
+    if fname.endswith('.fits') or fname.endswith('.fits') or \
+       fname.endswith('.fits.gz') or fname.endswith('.fit.gz'):
+        return fname
+    else:
+        return fname + '.fits'
+
 class DopplerError(Exception):
     pass
 
