@@ -2,6 +2,7 @@
 Defines the classes needed to represent Doppler maps.
 """
 
+import collections
 import numpy as np
 from astropy.io import fits
 
@@ -126,41 +127,36 @@ class Image(object):
           vz : if data is 3D then you must supply a z-velocity spacing in
                km/s.
         """
-        if not isinstance(data, np.ndarray) or data.ndim < 2 or data.ndim > 3:
+        self.data = np.asarray(data, dtype=np.float32)
+        if self.data.ndim < 2 or self.data.ndim > 3:
             raise DopplerError('Image.__init__: data must be a 2D' +
                                ' or 3D numpy array')
-        if data.ndim == 3 and vz is None:
+        if self.data.ndim == 3 and vz is None:
             raise DopplerError('Image.__init__: vz must be defined for 3D data')
 
-        self.data = data if data.dtype == np.float32 \
-            else data.astype(np.float32)
         self.vxy  = vxy
         self.vz   = vz
 
         # wavelengths
-        if isinstance(wave, np.ndarray):
-            if wave.ndim > 1:
-                raise DopplerError('Image.__init__: wave can at most' +
-                                   ' be one dimensional')
-            self.wave = wave
-        else:
+        self.wave = np.asarray(wave)
+        if self.wave.ndim == 0:
             self.wave = np.array([float(wave),])
-
+        elif self.wave.ndim > 1:
+            raise DopplerError('Image.__init__: wave can at most' +
+                               ' be one dimensional')
         # systemic velocities
-        if isinstance(gamma, np.ndarray):
-            if gamma.ndim > 1:
-                raise DopplerError('Image.__init__: gamma can at most' +
-                                   ' be one dimensional')
-            self.gamma = gamma
-        else:
+        self.gamma = np.asarray(gamma, dtype=np.float32)
+        if self.gamma.ndim == 0:
             self.gamma = np.array([float(gamma),],dtype=np.float32)
+        elif self.gamma.ndim > 1:
+            raise DopplerError('Image.__init__: gamma can at most' +
+                               ' be one dimensional')
 
         if len(self.gamma) != len(self.wave):
             raise DopplerError('Image.__init__: gamma and wave must' +
                                ' match in size')
 
         # default
-
         if not isinstance(default, Default):
             raise DopplerError('Image.__init__: default must be a Default object')
 
@@ -177,6 +173,12 @@ class Image(object):
                                    ' be one dimensional')
             self.scale = scale
 
+            if len(self.scale) != len(self.wave):
+                raise DopplerError('Image.__init__: scale and wave must' +
+                                   ' match in size')
+
+        elif isinstance(scale, collections.Iterable):
+            self.scale = np.array(scale)
             if len(self.scale) != len(self.wave):
                 raise DopplerError('Image.__init__: scale and wave must' +
                                    ' match in size')

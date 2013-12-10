@@ -68,50 +68,37 @@ class Spectra(object):
         """
 
         # checks
-        if not isinstance(flux, np.ndarray):
-            raise DopplerError('Data.__init__: flux must be a numpy array')
-        if not isinstance(ferr, np.ndarray):
-            raise DopplerError('Data.__init__: ferr must be a numpy array')
-        if not isinstance(wave, np.ndarray):
-            raise DopplerError('Data.__init__: wave must be a numpy array')
-        if not isinstance(time, np.ndarray):
-            raise DopplerError('Data.__init__: time must be a numpy array')
-
+        self.flux = np.asarray(flux, dtype=np.float32)
         if len(flux.shape) != 2:
             raise DopplerError('Data.__init__: flux must be a 2D array')
+
+        self.ferr = np.asarray(ferr, dtype=np.float32)
         if not sameDims(flux,ferr):
             raise DopplerError('Data.__init__: flux and ferr are incompatible.')
+
+        self.wave = np.asarray(wave, dtype=np.float64)
         if not sameDims(flux,wave):
-            raise DopplerError('Data.__init__: flux and wave are incompatible')
+            raise DopplerError('Data.__init__: flux and wave are incompatible.')
+
+        # check wavelengths increase in X
+        diff = self.wave[:,1:]-self.wave[:,:-1]
+        if not (diff > 0).all():
+            raise DopplerError('Data.__init__: wavelengths must increase for all X')
+
+        self.time = np.asarray(time, dtype=np.float64)
         if len(time.shape) != 1 or flux.shape[0] != len(time):
             raise DopplerError('Data.__init__: flux and time have' +
                                ' conflicting sizes')
+
+        self.expose = np.asarray(expose, dtype=np.float32)
         if len(expose.shape) != 1 or flux.shape[0] != len(expose):
             raise DopplerError('Data.__init__: flux and expose have' +
                                ' conflicting sizes')
+
+        self.ndiv = np.asarray(ndiv, dtype=np.int32)
         if len(ndiv.shape) != 1 or flux.shape[0] != len(ndiv):
             raise DopplerError('Data.__init__: flux and ndiv have' +
                                ' conflicting sizes')
-
-        # check wavelengths are monotonically increasing
-        diff = wave[:,1:]-wave[:,:-1]
-        if not (diff > 0).all():
-            raise DopplerError('Data.__init__: wavelengths must be monotonically increasing')
-
-        # Manipulate data types for efficiency savings when calling
-        # the C++ interface routines.
-        self.flux = flux if flux.dtype == np.float32 \
-            else flux.astype(np.float32)
-        self.ferr = ferr if ferr.dtype == np.float32 \
-            else ferr.astype(np.float32)
-        self.wave = wave if wave.dtype == np.float64 \
-            else wave.astype(np.float64)
-        self.time = time if time.dtype == np.float64 \
-            else time.astype(np.float64)
-        self.expose = expose if expose.dtype == np.float32 \
-            else expose.astype(np.float32)
-        self.ndiv = ndiv if ndiv.dtype == np.int32 \
-            else ndiv.astype(np.int32)
         self.fwhm   = fwhm
 
     @classmethod
@@ -225,7 +212,7 @@ class Data(object):
                                ' did not have 4n+1 HDUs')
         head = hdul[0].header
         data = []
-        for nhdu in xrange(1,len(hdul),6):
+        for nhdu in xrange(1,len(hdul),4):
             data.append(Spectra.fromHDUl(hdul[nhdu:]))
 
         return cls(head, data)
