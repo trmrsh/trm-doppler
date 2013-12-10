@@ -296,11 +296,13 @@ class Map(object):
                Should be a few times (5x at most) smaller than the km/s used for any
                image.
 
-      vpad   : padding used to extend the fine array beyond the range strictly defined
-               by the images. This is a fudge to allow for blurring of the data.
+      sfac   : scale factor to use when computing data from the map. This is designed
+               to allow the map images to take on "reasonable" values when matching
+               a set of data. In the old F77 doppler code it was set to 0.0001 by
+               default.
     """
 
-    def __init__(self, head, data, tzero, period, vfine, vpad):
+    def __init__(self, head, data, tzero, period, vfine, sfac=0.0001):
         """
         Creates a Map object
 
@@ -316,9 +318,8 @@ class Map(object):
                 blurring.  Should be a few times (5x at most) smaller than
                 the km/s used for any image.
 
-        vpad : padding used to extend the fine array beyond the range strictly
-               defined by the images. This is a fudge to allow for blurring of
-               the data.
+        sfac : factor to multiply by when computing data corresponding to the
+               map.
         """
 
         # some checks
@@ -343,7 +344,7 @@ class Map(object):
         self.tzero  = tzero
         self.period = period
         self.vfine  = vfine
-        self.vpad   = vpad
+        self.sfac  = sfac
 
     @classmethod
     def rfits(cls, fname):
@@ -362,13 +363,13 @@ class Map(object):
         tzero  = head['TZERO']
         period = head['PERIOD']
         vfine  = head['VFINE']
-        vpad   = head['VPAD']
+        sfac   = head['SFAC']
 
         # Remove from the header
         del head['TZERO']
         del head['PERIOD']
         del head['VFINE']
-        del head['VPAD']
+        del head['SFAC']
 
         # Now the data
         data = []
@@ -376,7 +377,7 @@ class Map(object):
             data.append(Image.fromHDU(hdu))
 
         # OK, now make the map
-        return cls(head, data, tzero, period, vfine, vpad)
+        return cls(head, data, tzero, period, vfine, sfac)
 
     def wfits(self, fname, clobber=True):
         """
@@ -387,7 +388,7 @@ class Map(object):
         head['TZERO']  = (self.tzero, 'Zeropoint of ephemeris')
         head['PERIOD'] = (self.period, 'Period of ephemeris')
         head['VFINE']  = (self.vfine, 'Fine array spacing, km/s')
-        head['VPAD']   = (self.vpad, 'Fine array padding, km/s')
+        head['SFAC']   = (self.sfac, 'Global scaling factor')
         hdul  = [fits.PrimaryHDU(header=head),]
         for image in self.data:
             hdul.append(image.toHDU())
@@ -398,7 +399,7 @@ class Map(object):
         return 'Map(head=' + repr(self.head) + \
             ', data=' + repr(self.data) + ', tzero=' + repr(self.tzero) + \
             ', period=' + repr(self.period) + ', vfine=' + repr(self.vfine) + \
-            ', vpad=' + repr(self.vpad) + ')'
+            ', sfac=' + repr(self.sfac) + ')'
 
 if __name__ == '__main__':
 
@@ -431,12 +432,11 @@ if __name__ == '__main__':
     tzero   =  2550000.
     period  =  0.15
     vfine   =  10.
-    vpad    =  200.
 
     print 'image2.default =',image2.default
 
     # create the Map
-    map = Map(head,[image1,image2],tzero,period,vfine,vpad)
+    map = Map(head,[image1,image2],tzero,period,vfine)
     
     # write to fits
     map.wfits('test.fits')
