@@ -6,6 +6,9 @@ Doppler tomography package
 Core classes & routines
 """
 
+# FWHM/sigma for a gaussian
+EFAC = 2.354820045
+
 def sameDims(arr1, arr2):
     """
     Checks that two numpy arrays have the same number of dimensions
@@ -25,12 +28,22 @@ def afits(fname):
     Appends .fits to a filename if it does not end
     with .fits, .fit, .fits.gz or .fit.gz
     """
-    # Write to a fits file
+
     if fname.endswith('.fits') or fname.endswith('.fits') or \
        fname.endswith('.fits.gz') or fname.endswith('.fit.gz'):
         return fname
     else:
         return fname + '.fits'
+
+def acfg(fname):
+    """
+    Appends .cfg to a filename if it does not end with it.
+    """
+
+    if fname.endswith('.cfg'):
+        return fname
+    else:
+        return fname + '.cfg'
 
 class DopplerError(Exception):
     pass
