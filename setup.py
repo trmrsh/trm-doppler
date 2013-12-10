@@ -34,7 +34,7 @@ setup(name='trm.doppler',
       version='0.1',
       packages = ['trm', 'trm.doppler'],
       ext_modules=[doppler],
-      scripts=['scripts/fakedata.py','scripts/fakemap.py','scripts/comdat.py'],
+      scripts=['scripts/makedata.py','scripts/makemap.py','scripts/comdat.py'],
 
       # metadata
       author='Tom Marsh',
