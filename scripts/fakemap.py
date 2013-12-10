@@ -3,6 +3,8 @@
 usage = \
 """
 fakemap creates a fake Dopper map which it writes to disc as a FITS file.
+This is not in any way general but consists of one image for Hbeta and
+Hgamma and another for HeII 4686.
 """
 
 import argparse
@@ -17,8 +19,9 @@ parser = argparse.ArgumentParser(description=usage)
 parser.add_argument('fake', help='name of fake image')
 
 # optional
-parser.add_argument('-nxy', type=int,   default=100, help='Number of pixels on a side in Vx-Vy space')
-parser.add_argument('-vxy', type=float, default=40, help='km/s/pixel in Vx-Vy space')
+parser.add_argument('-nxy', type=int,   default=250, help='Number of pixels on a side in Vx-Vy space')
+parser.add_argument('-vxy', type=float, default=20, help='km/s/pixel in Vx-Vy space')
+parser.add_argument('-vf', dest='vfine', type=float, default=5, help='km/s/pixel in fine array')
 
 # OK, done with arguments.
 args = parser.parse_args()
@@ -69,19 +72,10 @@ image2  = doppler.Image(array2, vxy, wave2, gamma2, def2)
 # ephemeris etc
 tzero  = 50000.
 period = 0.1
-vfine  = 10.
-vpad   = 700.
+vfine  = args.vfine
 
 # create the Map
-map = doppler.Map(mhead,[image1,image2],tzero,period,vfine,vpad)
+map = doppler.Map(mhead,[image1,image2],tzero,period,vfine)
 
 # Write to a fits file
-if args.fake.endswith('.fits') or args.fake.endswith('.fits') or \
-        args.fake.endswith('.fits.gz') or args.fake.endswith('.fit.gz'):
-    oname = args.fake
-else:
-    oname = args.fake + '.fits'
-
-map.wfits(oname)
-
-
+map.wfits(doppler.afits(args.fake))
