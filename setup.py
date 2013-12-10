@@ -34,7 +34,7 @@ setup(name='trm.doppler',
       version='0.1',
       packages = ['trm', 'trm.doppler'],
       ext_modules=[doppler],
-#      scripts=['scripts/hms2decimal.py'],
+      scripts=['scripts/fakedata.py','scripts/fakemap.py','scripts/comdat.py'],
 
       # metadata
       author='Tom Marsh',
