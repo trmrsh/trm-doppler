@@ -31,9 +31,6 @@ parser.add_argument('-c', dest='clobber', action='store_true',
 # OK, done with arguments.
 args = parser.parse_args()
 
-# used to check config file versions
-version = 20131210
-
 if args.write:
     if not args.clobber and os.path.exists(doppler.acfg(args.config)):
         print('\nERROR: ',doppler.acfg(args.config),
@@ -90,7 +87,7 @@ wrms   = 0.02
 time1  = 50000.0
 time2  = 50000.1
 nspec  = 50
-error  = 1.0
+error  = 0.3
 fwhm   = 150.
 ndiv   = 1
 
@@ -102,12 +99,12 @@ wrms   = 0.01
 time1  = 50000.0
 time2  = 50000.1
 nspec  = 20
-error  = 1.0
+error  = 0.2
 fwhm   = 100.
 ndiv   = 3
 """
     with open(doppler.acfg(args.config),'w') as fout:
-        fout.write(config.format(version))
+        fout.write(config.format(doppler.VERSION))
 else:
 
     if not args.clobber and os.path.exists(doppler.afits(args.data)):
@@ -119,7 +116,7 @@ else:
     config.read(doppler.acfg(args.config))
 
     tver   = config.getint('main', 'version')
-    if tver != version:
+    if tver != doppler.VERSION:
         print('Version number in config file =',tver,
               'conflicts with version of script =',version)
         print('Will continue but there may be problems')
