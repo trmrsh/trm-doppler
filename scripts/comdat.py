@@ -20,7 +20,8 @@ parser.add_argument('dtemp', help='data template file')
 parser.add_argument('dout',  help='data output file')
 
 # optional
-parser.add_argument('-n', dest='noise', action='store_true', help='add noise according to uncertainty array in template')
+parser.add_argument('-n', dest='noise', action='store_true',
+                    help='add noise according to uncertainty array in template')
 
 # OK, done with arguments.
 args = parser.parse_args()
