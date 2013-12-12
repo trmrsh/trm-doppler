@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from __future__ import print_function 
+from __future__ import print_function
 
 usage = \
 """
@@ -21,16 +21,13 @@ parser.add_argument('config', help='configuration file name, output if -w is set
 parser.add_argument('map', nargs='?', default='mmap.fits', help='name of output map')
 
 # optional
-parser.add_argument('-w', dest='write', action='store_true', 
+parser.add_argument('-w', dest='write', action='store_true',
                     help='Will write an example config file rather than read one')
-parser.add_argument('-c', dest='clobber', action='store_true', 
+parser.add_argument('-c', dest='clobber', action='store_true',
                     help='Clobber output files, both config for -w and the FITS file')
 
 # OK, done with arguments.
 args = parser.parse_args()
-
-# used to check config file versions
-version = 20131210
 
 if args.write:
     if not args.clobber and os.path.exists(doppler.acfg(args.config)):
@@ -59,6 +56,7 @@ if args.write:
 # vfine    : km/s/pixel of fine array
 # tzero    : zeropoint of ephemeris
 # period   : period of ephemeris
+# quad     : quadratic term of ephemeris
 # sfac     : global scaling factor to keep image values in a nice range
 
 [main]
@@ -68,6 +66,7 @@ clobber  =  no
 vfine    =  5.
 tzero    =  50000.
 period   =  0.1
+quad     =  0.0
 sfac     =  0.0001
 
 # keywords / values for the FITS header. Optional
@@ -77,7 +76,7 @@ ORIGIN = makemap.py
 OBJECT = SS433
 
 # image sections. Each image requires the following:
-# 
+#
 # nxy    : number of pixels on a side in Vx-Vy plane
 # nz     : number of Vz slice
 # vxy    : km/s/pixel in Vx-Vy plane
@@ -88,7 +87,7 @@ OBJECT = SS433
 # fwhmz  : if Gaussian, this is FWHM, km/s, to use in Z (ignored if nz == 1)
 # wave1  : wavelength of first line associated with the image
 # gamma1 : systemic velocity, km/s, of first line associated with the image
-# scale1 : scale factor of first line associated with the image [ignored 
+# scale1 : scale factor of first line associated with the image [ignored
 #          if only one wavelength]
 # wave2  : wavelength of second line associated with the image
 # gamma2 : systemic velocity, km/s, of second line associated with the image
@@ -127,7 +126,7 @@ wave1   = 468.6
 gamma1  = 100.
 
 # Next sections are optional. They allow the addition of gaussian
-# spots to make something more interesting than a constant. A 
+# spots to make something more interesting than a constant. A
 # section like [spot1_2] means the second spot for image 1.
 # Each spot is defined by:
 #
@@ -160,7 +159,7 @@ height = 1.0
 
 """
     with open(doppler.acfg(args.config),'w') as fout:
-        fout.write(config.format(version))
+        fout.write(config.format(doppler.VERSION))
 else:
 
     if not args.clobber and os.path.exists(doppler.afits(args.map)):
@@ -172,9 +171,9 @@ else:
     config.read(doppler.acfg(args.config))
 
     tver   = config.getint('main', 'version')
-    if tver != version:
+    if tver != doppler.VERSION:
         print('Version number in config file =',tver,
-              'conflicts with version of script =',version)
+              'conflicts with version of script =',doppler.VERSION)
         print('Will continue but there may be problems')
 
     target = config.get('main', 'target')
@@ -187,6 +186,7 @@ else:
     vfine  = config.getfloat('main', 'vfine')
     tzero  = config.getfloat('main', 'tzero')
     period = config.getfloat('main', 'period')
+    quad   = config.getfloat('main', 'quad')
     sfac   = config.getfloat('main', 'sfac')
 
     # the header
@@ -214,9 +214,9 @@ else:
         nxy = config.getint(img,'nxy')
         nz  = config.getint(img,'nz')
         if nz > 1:
-            array = np.zeros((nz,nxy,nxy))
+            array = np.empty((nz,nxy,nxy))
         else:
-            array = np.zeros((nxy,nxy))
+            array = np.empty((nxy,nxy))
 
         vxy = config.getfloat(img,'vxy')
         if nz > 1:
@@ -226,8 +226,8 @@ else:
 
         # add background
         back = config.getfloat(img,'back')
-        array += back
-        
+        array.fill(back)
+
         # Default
         defop = config.get(img,'default')
         if defop == 'Uniform':
@@ -278,21 +278,21 @@ else:
                 # Compute arrays
                 vrange = vxy*(nxy-1)/2.
 
-                # Aim in next bit is to return with array of squared 
+                # Aim in next bit is to return with array of squared
                 # distance from the spot centre.
                 x = y = np.linspace(-vrange,vrange,nxy)
                 if nz == 1:
                     x, y = np.meshgrid(x, y)
                 else:
                     nx = ny = nxy
-                    vzrange = vz*(nz-1)/2. 
+                    vzrange = vz*(nz-1)/2.
                     z = np.linspace(-vzrange,vzrange,nz)
 
                     # carry out 3D version of meshgrid
                     x = x.reshape(1,1,nx)
                     y = y.reshape(1,ny,1)
                     z = z.reshape(nz,1,1)
-                    
+
                     # now extend in other 2 dimensions
                     x = x.repeat(ny,axis=1)
                     x = x.repeat(nz,axis=0)
@@ -300,7 +300,7 @@ else:
                     y = y.repeat(nz,axis=0)
                     z = z.repeat(nx,axis=2)
                     z = z.repeat(ny,axis=1)
-                 
+
 
             if nz == 1:
                 rsq = (x-vx)**2+(y-vy)**2
@@ -319,7 +319,7 @@ else:
         nimage += 1
 
     # create the Map
-    map = doppler.Map(mhead,images,tzero,period,vfine,sfac)
+    map = doppler.Map(mhead,images,tzero,period,quad,vfine,sfac)
 
     # Write to a fits file
     map.wfits(doppler.afits(args.map),clobber=(args.clobber or clobber))
