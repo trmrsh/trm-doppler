@@ -11,6 +11,7 @@ import numpy as np
 import pylab as plt
 from astropy.io import fits
 from trm import doppler
+import copy
 
 parser = argparse.ArgumentParser(description=usage)
 
@@ -31,12 +32,18 @@ dmap  = doppler.Map.rfits(doppler.afits(args.map))
 dtemp = doppler.Data.rfits(doppler.afits(args.dtemp))
 
 # compute data
-dout  = doppler.comdat(dmap, dtemp)
+dcopy = copy.deepcopy(dtemp)
+doppler.comdat(dmap, dtemp)
 
 # optionally add noise
 if args.noise:
-    for spectra in dout.data:
+    for spectra in dtemp.data:
         spectra.flux = np.random.normal(spectra.flux, spectra.ferr)
+else:
+    chisq = 0.
+    for cspec, dspec in zip(dtemp.data, dcopy.data):
+        chisq += (((dspec.flux-cspec.flux)/dspec.ferr)**2).sum()
+    print 'Chi**2 = ',chisq
 
 # Write to a fits file
-dout.wfits(doppler.afits(args.dout))
+dtemp.wfits(doppler.afits(args.dout))
