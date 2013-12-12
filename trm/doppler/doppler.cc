@@ -7,24 +7,27 @@
 // transpose.
 //
 // The data, structure and routines in this file are as follows::
-//  
+//
 //  CKMS        : speed of light in km/s (data)
 //  EFAC        : ratio of fwhm/sigma for a gaussian (data)
 //  Nxyz        : structure for image dimensions (struct)
 //  op          : image to data transform routine. (func)
 //  tr          : data to image (transpose of op) routine. (func)
 //  npix_map    : calculates the number of pixels needed for the images (func)
-//  read_map    : makes internal contents of a Map object accessible from C++ (func)
+//  read_map    : makes internal contents of a Map object accessible from C++
+//                (func)
 //  update_data : overwrites image array(s) of a Map object. (func)
 //  npix_data   : calculates the number of pixels needed for fluxes, errors,
 //                wave (func)
-//  read_data   : makes internal contents of a Data object accessible from C++ (func)
+//  read_data   : makes internal contents of a Data object accessible from C++
+//                (func)
 //  update_data : overwrites flux array(s) of a Data object. (func)
 //  doppler_comdat : compute data equivalent to an image (func)
 
 #include <Python.h>
 #include <iostream>
 #include <vector>
+//#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include "numpy/arrayobject.h"
 #include <cmath>
 #include <complex.h>
@@ -41,7 +44,6 @@ const double EFAC = 2.354820045;
 struct Nxyz{
     Nxyz(size_t nx, size_t ny, size_t nz=1) : nx(nx), ny(ny), nz(nz) {}
     size_t ntot() const {return nx*ny*nz;}
-
     size_t nx, ny, nz;
 };
 
@@ -61,6 +63,7 @@ struct Nxyz{
  *  scale  : scaling factors for each wavelength, vector/image, (input)
  *  tzero  : ephemeris zero point, same units as the times (input)
  *  period : ephemeris period, same units as the times (input)
+ *  quad   : quadratic term of ephemeris, same units as the times (input)
  *  vfine  : km/s to use for internal fine array (input)
  *  sfac   : global scaling factor
  *
@@ -84,7 +87,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<double> >& wavel,
         const std::vector<std::vector<float> >& gamma,
         const std::vector<std::vector<float> >& scale,
-        double tzero, double period, double vfine, double sfac,
+        double tzero, double period, double quad, double vfine, double sfac,
         float* data, const double* wave,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
         const std::vector<std::vector<double> >& time,
@@ -152,11 +155,11 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     // place, but the amount of memory required here is small, so it is better
     // to have an explicit dedicated array
     const size_t NFFT = NFINE/2+1;
-    fftw_complex *bfft = (fftw_complex*) 
+    fftw_complex *bfft = (fftw_complex*)
         fftw_malloc(sizeof(fftw_complex) * NFFT);
 
     // this for the FFT of the fine pixel array
-    fftw_complex *fpfft = (fftw_complex*) 
+    fftw_complex *fpfft = (fftw_complex*)
         fftw_malloc(sizeof(fftw_complex) * NFFT);
 
     // Grab space for fine arrays
@@ -164,11 +167,11 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     double *tfine = new double[NFINE];
 
     // create plans for blurr, fine pixel and final inverse FFTs
-    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft, 
+    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft,
                                             FFTW_ESTIMATE);
-    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft, 
+    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft,
                                             FFTW_ESTIMATE);
-    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine, 
+    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine,
                                             FFTW_ESTIMATE);
 
     // various local variables
@@ -181,7 +184,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     int nf, ifp1, ifp2;
 
     // phase, cosine, sine, weight factor
-    double phase, cosp, sinp, weight;
+    double tsub, phase, corr, deriv, cosp, sinp, weight;
 
     // image indices
     size_t ix, iy, iz;
@@ -251,8 +254,8 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     v1 = CKMS*(w1/wv-1.)-gm;
                     v2 = CKMS*(w2/wv-1.)-gm;
 
-                    // test for overlap. If yes, break the loop because
-                    // we can't skip 
+                    // test for overlap. If yes, break the loop because we
+                    // can't skip
                     if(v1 < vmax && v2 > -vmax){
                         skip = false;
                         break;
@@ -261,7 +264,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 if(!skip) break;
             }
             if(skip) continue;
-            
+
             // extract image dimensions and velocity scales
             nx   = nxyz[ni].nx;
             ny   = nxyz[ni].ny;
@@ -272,7 +275,8 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
             // loop through each spectrum of the data set
             dptr = data;
             wptr = wave;
-            for(size_t ns=0; ns<nspec[nd]; ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
+            for(size_t ns=0; ns<nspec[nd];
+                ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
 
                 // This initialisation is needed per spectrum
                 memset(fine, 0, NFINE*sizeof(double));
@@ -286,9 +290,19 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
                     // Compute phase over uniformly spaced set from start to
                     // end of exposure. Times are assumed to be mid-exposure
-                    phase = (time[nd][ns]+expose[nd][ns]*
-                             (float(nt)-float(ntdiv-1)/2.)/
-                             std::max(ntdiv-1,1)-tzero)/period;
+                    tsub = time[nd][ns]+expose[nd][ns]*(float(nt)-float(ntdiv-1)/2.)/
+                        std::max(ntdiv-1,1);
+
+                    // Linear estimate of phase to start
+                    phase = (tsub-tzero)/period;
+
+                    // Two Newton-Raphson corrections for quadratic term
+                    for(int nc=0; nc<2; nc++){
+                        corr   = tzero+period*phase+quad*std::pow(phase,2) - tsub;
+                        deriv  = period+2.*quad*phase;
+                        phase -= corr/deriv;
+                    }
+
                     cosp  = cos(2.*M_PI*phase);
                     sinp  = sin(2.*M_PI*phase);
 
@@ -319,7 +333,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     // pointer at the start of the current image. This is
                     // incremented in the innermost loop
                     iiptr = iptr;
-                    
+
                     // Project onto the fine array. These are the innermost
                     // loops which need to be as fast as possible. Each loop
                     // initialises a pixel index and a pixel offset that are
@@ -327,7 +341,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     // projection has to do is calculate where to add into the
                     // tfine array, check that it lies within range and add the
                     // value in if it is. Per cycle of the innermost loop there
-                    // are 4 additions (2 integer, 2 double), 1 rounding, 
+                    // are 4 additions (2 integer, 2 double), 1 rounding,
                     // 1 conversion to an integer and 2 comparisons.
                     for(iz=0; iz<nz; iz++, pzoff+=pzstep){
                         for(iy=0, pyoff=pzoff-pystep*double(ny-1)/2.;
@@ -393,12 +407,12 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                         if(v1 < vmax && v2 > -vmax){
 
                             // fp1, fp2 -- start and end limits of data pixel
-                            // in fine array pixels 
+                            // in fine array pixels
                             fp1  = v1/vfine + double(nfine-1)/2.;
                             fp2  = v2/vfine + double(nfine-1)/2.;
 
-                            // ifp1, ifp2 -- fine pixel range fully inside the data
-                            // in traditional C form (i.e. ifp1<= <ifp2)
+                            // ifp1, ifp2 -- fine pixel range fully inside the
+                            // data in traditional C form (i.e. ifp1<= <ifp2)
                             ifp1 = std::min(nfine,std::max(0,int(std::ceil(fp1+0.5))));
                             ifp2 = std::min(nfine,std::max(0,int(std::floor(fp2+0.5))));
 
@@ -423,7 +437,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
             // advance the image pointer
             iptr += nz*ny*nx;
         }
-         
+
         // advance the data and wavelength pointers
         data += nspec[nd]*nwave[nd];
         wave += nspec[nd]*nwave[nd];
@@ -454,6 +468,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
  *  scale  : scaling factors for each wavelength, vector/image, (input)
  *  tzero  : ephemeris zero point, same units as the times (input)
  *  period : ephemeris period, same units as the times (input)
+ *  quad   : quadratic term of ephemeris
  *  vfine  : km/s to use for internal fine array (input)
  *  sfac   : global scaling factor to keep numbers within nice range
  *
@@ -477,7 +492,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<double> >& wavel,
         const std::vector<std::vector<float> >& gamma,
         const std::vector<std::vector<float> >& scale,
-        double tzero, double period, double vfine, double sfac,
+        double tzero, double period, double quad, double vfine, double sfac,
         const float* data, const double* wave,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
         const std::vector<std::vector<double> >& time,
@@ -488,7 +503,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     // See op for what is going on. This routine computes a transposed version
     // which is hard to explain except by saying "here we carry out the
     // transpose of what happens in op". The actual code ends up looking very
-    // similar, bar a reversal of ordering. 
+    // similar, bar a reversal of ordering.
 
     // Now we need to know how many pixels at most are needed for the blurring
     // function. Loop over the data sets. Note that cf op, we don't compute
@@ -542,11 +557,11 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     // place, but the amount of memory required here is small, so it is better
     // to have an explicit dedicated array
     const size_t NFFT = NFINE/2+1;
-    fftw_complex *bfft = (fftw_complex*) 
+    fftw_complex *bfft = (fftw_complex*)
         fftw_malloc(sizeof(fftw_complex) * NFFT);
 
     // this for the FFT of the fine pixel array
-    fftw_complex *fpfft = (fftw_complex*) 
+    fftw_complex *fpfft = (fftw_complex*)
         fftw_malloc(sizeof(fftw_complex) * NFFT);
 
     // Grab space for fine arrays
@@ -554,11 +569,11 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     double *tfine = new double[NFINE];
 
     // create plans for the blurring, fine pixeland final inverse FFTs
-    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft, 
+    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft,
                                             FFTW_ESTIMATE);
-    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft, 
+    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft,
                                             FFTW_ESTIMATE);
-    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine, 
+    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine,
                                             FFTW_ESTIMATE);
 
     // various local variables
@@ -571,7 +586,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     int nf, ifp1, ifp2;
 
     // phase, cosine, sine, weight factor
-    double phase, cosp, sinp, weight;
+    double tsub, phase, corr, deriv, cosp, sinp, weight;
 
     // image indices
     size_t ix, iy, iz;
@@ -594,9 +609,9 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     // Loop over each data set
     for(size_t nd=0; nd<nspec.size(); nd++){
 
-        // compute blurring array (specific to the dataset
-        // so can't be done earlier). End by FFT-ing it in order
-        // to perform the convolution later.
+        // compute blurring array (specific to the dataset so can't be done
+        // earlier). End by FFT-ing it in order to perform the convolution
+        // later.
         norm = blurr[0] = 1.;
         psigma = fwhm[nd]/vfine/EFAC;
         for(m=1, n=NFINE-1; m<nblurr; m++, n--){
@@ -608,8 +623,8 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         // zero the centre part
         memset(blurr+nblurr, 0, (NFINE-2*nblurr+1)*sizeof(double));
 
-        // Next line gets overall FFT/iFFT normalisation right
-        // cutting out any need to normalise by NFINE later
+        // Next line gets overall FFT/iFFT normalisation right cutting out any
+        // need to normalise by NFINE later
         norm *= NFINE;
 
         // normalise
@@ -626,9 +641,8 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         iptr = image;
         for(size_t ni=0; ni<nxyz.size(); ni++){
 
-            // Calculate whether we can skip this particular
-            // dataset / image combination because we can save
-            // much fuss now if we can
+            // Calculate whether we can skip this particular dataset / image
+            // combination because we can save much fuss now if we can
             bool skip = true;
             for(size_t nw=0; nw<wavel[ni].size(); nw++){
                 wv = wavel[ni][nw];
@@ -641,8 +655,8 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                     v1 = CKMS*(w1/wv-1.)-gm;
                     v2 = CKMS*(w2/wv-1.)-gm;
 
-                    // test for overlap. If yes, break the loop because
-                    // we can't skip 
+                    // test for overlap. If yes, break the loop because we
+                    // can't skip
                     if(v1 < vmax && v2 > -vmax){
                         skip = false;
                         break;
@@ -651,7 +665,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                 if(!skip) break;
             }
             if(skip) continue;
-            
+
             // extract image dimensions and velocity scales
             nx   = nxyz[ni].nx;
             ny   = nxyz[ni].ny;
@@ -662,12 +676,14 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
             // loop through each spectrum of the data set
             dptr = data;
             wptr = wave;
-            for(size_t ns=0; ns<nspec[nd]; ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
+            for(size_t ns=0; ns<nspec[nd];
+                ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
 
                 // This initialisation is needed per spectrum
                 memset(fine, 0, NFINE*sizeof(double));
 
-                // [cf op]. This is the final step in op, here it comes the first
+                // [cf op]. This is the final step in op, here it comes the
+                // first
 
                 // loop over each line associated with this image
                 for(k=0; k<wavel[ni].size(); k++){
@@ -678,7 +694,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                     // left-hand side of first pixel
                     v1 = CKMS*((wptr[0]+wptr[1])/2./wv)-gm;
 
-                    // loop over every pixel in the spectrum. 
+                    // loop over every pixel in the spectrum.
                     for(m=1; m<nwave[nd]-1; m++){
                         // velocity of right-hand side of pixel
                         v2 = CKMS*((wptr[m]+wptr[m+1])/2./wv-1.)-gm;
@@ -686,12 +702,12 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                         if(v1 < vmax && v2 > -vmax){
 
                             // fp1, fp2 -- start and end limits of data pixel
-                            // in fine array pixels 
+                            // in fine array pixels
                             fp1  = v1/vfine + double(nfine-1)/2.;
                             fp2  = v2/vfine + double(nfine-1)/2.;
 
-                            // ifp1, ifp2 -- fine pixel range fully inside the data
-                            // in traditional C form (i.e. ifp1<= <ifp2)
+                            // ifp1, ifp2 -- fine pixel range fully inside the
+                            // data in traditional C form (i.e. ifp1<= <ifp2)
                             ifp1 = std::min(nfine,std::max(0,int(std::ceil(fp1+0.5))));
                             ifp2 = std::min(nfine,std::max(0,int(std::floor(fp2+0.5))));
 
@@ -729,9 +745,19 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 
                     // Compute phase over uniformly spaced set from start to
                     // end of exposure. Times are assumed to be mid-exposure
-                    phase = (time[nd][ns]+expose[nd][ns]*
-                             (float(nt)-float(ntdiv-1)/2.)/
-                             std::max(ntdiv-1,1)-tzero)/period;
+                    tsub = time[nd][ns]+expose[nd][ns]*(float(nt)-float(ntdiv-1)/2.)/
+                        std::max(ntdiv-1,1);
+
+                    // Linear estimate of phase to start
+                    phase = (tsub-tzero)/period;
+
+                    // Two Newton-Raphson corrections for quadratic term
+                    for(int nc=0; nc<2; nc++){
+                        corr   = tzero+period*phase+quad*std::pow(phase,2) - tsub;
+                        deriv  = period+2.*quad*phase;
+                        phase -= corr/deriv;
+                    }
+
                     cosp  = cos(2.*M_PI*phase);
                     sinp  = sin(2.*M_PI*phase);
 
@@ -762,16 +788,16 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                     // pointer at the start of the current image. This is
                     // incremented in the innermost loop
                     iiptr = iptr;
-                    
+
                     // Project onto the fine array. These are the innermost
                     // loops which need to be as fast as possible. Each loop
                     // initialises a pixel index and a pixel offset that are
                     // both added to as the loop progresses. All the
                     // projection has to do is calculate where to add into the
-                    // tfine array, check that it lies within range and add the
-                    // value in if it is. Per cycle of the innermost loop there
-                    // are 4 additions (2 integer, 2 double), 1 rounding, 
-                    // 1 conversion to an integer and 2 comparisons.
+                    // tfine array, check that it lies within range and add
+                    // the value in if it is. Per cycle of the innermost loop
+                    // there are 4 additions (2 integer, 2 double), 1
+                    // rounding, 1 conversion to an integer and 2 comparisons.
 
                     // [cf op]
                     if(ntdiv > 1 && (nt == 0 || nt == ntdiv - 1)){
@@ -798,7 +824,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
             // advance the image pointer
             iptr += nz*ny*nx;
         }
-         
+
         // advance the data and wavelength pointers
         data += nspec[nd]*nwave[nd];
         wave += nspec[nd]*nwave[nd];
@@ -815,8 +841,9 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     delete[] blurr;
 }
 
-/* gaussdef computes a gaussian default image by blurring in all three directions.
- * The blurring is carried out using FFTs. This routine applies the blurring to one image
+/* gaussdef computes a gaussian default image by blurring in all three
+ * directions.  The blurring is carried out using FFTs. This routine applies
+ * the blurring to one image
  *
  * input  : input image (input)
  * nxyz   : dimensions. Only axes with dimensions > 1 are blurred. (input)
@@ -826,20 +853,21 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
  * output : output (blurred) image (output)
  */
 
-void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, double fwhmz, float *output){
+void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
+              double fwhmy, double fwhmz, float *output){
 
   // Work out buffer sizes needed for FFTs
-  size_t naddx = 2*int(3.*fwhmx+1.); 
+  size_t naddx = 2*int(3.*fwhmx+1.);
   size_t ntotx = nxyz.nx + naddx;
   const size_t NTOTX =
       size_t(std::pow(2,int(std::ceil(std::log(ntotx)/std::log(2.)))));
 
-  size_t naddy = 2*int(3.*fwhmy+1.); 
+  size_t naddy = 2*int(3.*fwhmy+1.);
   size_t ntoty = nxyz.ny + naddy;
   const size_t NTOTY =
       size_t(std::pow(2,int(std::ceil(std::log(ntoty)/std::log(2.)))));
 
-  size_t naddz = 2*int(3.*fwhmz+1.); 
+  size_t naddz = 2*int(3.*fwhmz+1.);
   size_t ntotz = nxyz.nz + naddz;
   const size_t NTOTZ =
       size_t(std::pow(2,int(std::ceil(std::log(ntotz)/std::log(2.)))));
@@ -856,19 +884,19 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
   double *blurr = new double[NTOT];
 
   // FFT of blurring array
-  fftw_complex *bfft = (fftw_complex*) 
+  fftw_complex *bfft = (fftw_complex*)
       fftw_malloc(sizeof(fftw_complex) * NFFT);
 
   // FFT of the array to be blurred
-  fftw_complex *afft = (fftw_complex*) 
+  fftw_complex *afft = (fftw_complex*)
       fftw_malloc(sizeof(fftw_complex) * NFFT);
 
   // create FFT plans for the blurr, work and final inverse
-  fftw_plan pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, 
+  fftw_plan pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft,
                                           FFTW_ESTIMATE);
-  fftw_plan pforw = fftw_plan_dft_r2c_1d(NTOT, array, afft, 
+  fftw_plan pforw = fftw_plan_dft_r2c_1d(NTOT, array, afft,
                                          FFTW_ESTIMATE);
-  fftw_plan pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, 
+  fftw_plan pback = fftw_plan_dft_c2r_1d(NTOT, afft, array,
                                          FFTW_ESTIMATE);
 
   // some repeatedly used variables
@@ -891,43 +919,43 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
       }
 
       // zero the middle part
-      memset(blurr, 0, NTOT*sizeof(double));
-      
+      memset(blurr+naddx/2, 0, (NTOT-naddx+1)*sizeof(double));
+
       // Next line gets the FFT/inverse-FFT pair
       // normalisation right.
       norm *= NTOT;
-      
+
       // normalise
       for(m=0;m<NTOT;m++)
           blurr[m] /= norm;
-      
+
       // FFT the blurring array
       fftw_execute(pblurr);
-      
+
       iptr  = output;
       optr  = output;
       nstep = nxyz.nx;
-      
+
       for(iz=0; iz<nxyz.nz; iz++){
           for(iy=0; iy<nxyz.ny; iy++, iptr+=nstep, optr+=nstep){
-              
+
               // transfer data to double work array
               for(ix=0; ix<nxyz.nx; ix++)
                   array[ix] = double(iptr[ix]);
-              
+
               // zeropad
               memset(array+nxyz.nx, 0, (NTOT-nxyz.nx)*sizeof(double));
-              
+
               // FFT
               fftw_execute(pforw);
-              
-              // multiply by the FFT of the blurr 
+
+              // multiply by the FFT of the blurr
               for(k=0; k<NFFT; k++)
                   afft[k] *= bfft[k];
-              
+
               // inverse FFT
               fftw_execute(pback);
-              
+
               // transfer result to output
               for(ix=0; ix<nxyz.nx; ix++)
                   optr[ix] = float(array[ix]);
@@ -938,7 +966,6 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
   // Blurr in Y
   if(nxyz.ny > 1 && fwhmy >= 0.){
 
-      memset(blurr, 0, NTOT*sizeof(double));
       norm  = blurr[0] = 1.;
       sigma = fwhmy/EFAC;
       for(m=1, n=NTOT-1; m<naddy/2; m++, n--){
@@ -946,15 +973,18 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
           blurr[m] = blurr[n] = prf;
           norm += 2.*prf;
       }
-      
+
+      // zero the middle part
+      memset(blurr+naddy/2, 0, (NTOT-naddy+1)*sizeof(double));
+
       // Next line gets the FFT/inverse-FFT pair
       // normalisation right.
       norm *= NTOT;
-      
+
       // normalise
       for(m=0;m<NTOT;m++)
           blurr[m] /= norm;
-      
+
       // FFT the blurring array
       fftw_execute(pblurr);
       nstep = nxyz.nx;
@@ -971,17 +1001,17 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
 
               // zeropad
               memset(array+nxyz.ny, 0, (NTOT-nxyz.ny)*sizeof(double));
-              
+
               // FFT
               fftw_execute(pforw);
-              
-              // multiply by the FFT of the blurr 
+
+              // multiply by the FFT of the blurr
               for(k=0; k<NFFT; k++)
                   afft[k] *= bfft[k];
-              
+
               // inverse FFT
               fftw_execute(pback);
-              
+
               // transfer result to output
               optr = ooptr;
               for(iy=0; iy<nxyz.ny; iy++, optr+=nstep)
@@ -993,7 +1023,6 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
   // Blurr in Z
   if(nxyz.nz > 1 && fwhmz >= 0.){
 
-      memset(blurr, 0, NTOT*sizeof(double));
       norm  = blurr[0] = 1.;
       sigma = fwhmz/EFAC;
       for(m=1, n=NTOT-1; m<naddz/2; m++, n--){
@@ -1001,15 +1030,18 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
           blurr[m] = blurr[n] = prf;
           norm += 2.*prf;
       }
-      
+
+      // zero the middle part
+      memset(blurr+naddz/2, 0, (NTOT-naddz+1)*sizeof(double));
+
       // Next line gets the FFT/inverse-FFT pair
       // normalisation right.
       norm *= NTOT;
-      
+
       // normalise
       for(m=0;m<NTOT;m++)
           blurr[m] /= norm;
-      
+
       // FFT the blurring array
       fftw_execute(pblurr);
 
@@ -1027,17 +1059,17 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
 
               // zeropad
               memset(array+nxyz.nz, 0, (NTOT-nxyz.nz)*sizeof(double));
-              
+
               // FFT
               fftw_execute(pforw);
-              
-              // multiply by the FFT of the blurr 
+
+              // multiply by the FFT of the blurr
               for(k=0; k<NFFT; k++)
                   afft[k] *= bfft[k];
-              
+
               // inverse FFT
               fftw_execute(pback);
-              
+
               // transfer result to output
               optr = ooptr;
               for(iz=0; iz<nxyz.nz; iz++, optr+=nstep)
@@ -1045,7 +1077,7 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
           }
       }
   }
-      
+
   // Get memory back
   fftw_destroy_plan(pback);
   fftw_destroy_plan(pforw);
@@ -1056,18 +1088,18 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx, double fwhmy, 
   delete[] array;
 }
 
-// Wrap globals to get through to opus 
+// Wrap globals to get through to opus
 // and tropus inside a namespace
 
 namespace Dopp {
 
-    // For Map objects 
+    // For Map objects
     std::vector<Nxyz> nxyz;
     std::vector<int> def;
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, sfac;
+    double tzero, period, quad, vfine, sfac;
 
     // For Data objects
     std::vector<size_t> nwave, nspec;
@@ -1083,10 +1115,10 @@ namespace Dopp {
 void Mem::opus(const int j, const int k){
 
     std::cerr << "    OPUS " << j+1 << " ---> " << k+1 << std::endl;
-    
+
     op(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::tzero, Dopp::period,
-       Dopp::vfine, Dopp::sfac, 
+       Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
 }
@@ -1096,10 +1128,10 @@ void Mem::opus(const int j, const int k){
 void Mem::tropus(const int k, const int j){
 
     std::cerr << "  TROPUS " << j+1 << " <--- " << k+1 << std::endl;
-    
+
     tr(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::tzero, Dopp::period,
-       Dopp::vfine, Dopp::sfac, 
+       Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
 }
@@ -1208,7 +1240,7 @@ npix_map(PyObject *Map, size_t& npix)
  * Arguments::
  *
  *  map     :  the Doppler map (input)
- *  images  :  C-style array with enough space for the image array (output), 
+ *  images  :  C-style array with enough space for the image array (output),
  *  nxyz    :  vector of image dimensions (output)
  *  vxy     :  vector of VX-VY pixels sizes for each image (output)
  *  vz      :  vector of VZ spacings for each image (output)
@@ -1220,6 +1252,7 @@ npix_map(PyObject *Map, size_t& npix)
  *  fwhmz   :  gaussian defaults, FWHM blurr in km/s in Vz (output)
  *  tzero   :  zeropoint of ephemeris (output)
  *  period  :  period of ephemeris (output)
+ *  quad    :  quadratic term of ephemeris (output)
  *  vfine   :  km/s for fine projection array (output)
  *  sfac    :  global scaling factor (output)
  *
@@ -1237,8 +1270,9 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
          std::vector<std::vector<float> >& gamma,
          std::vector<std::vector<float> >& scale,
          std::vector<int>& def, std::vector<double>& fwhmxy,
-         std::vector<double>& fwhmz, double& tzero, 
-         double& period, double& vfine, double& sfac)
+         std::vector<double>& fwhmz, double& tzero,
+         double& period, double& quad, double& vfine,
+         double& sfac)
 {
 
     bool status = false;
@@ -1248,13 +1282,12 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
         return status;
     }
 
-    float *timages=images;
-
     // initialise attribute pointers
     PyObject *data=NULL, *image=NULL, *idata=NULL, *iwave=NULL;
     PyObject *igamma=NULL, *ivxy=NULL, *iscale=NULL, *ivz=NULL;
-    PyObject *itzero=NULL, *iperiod=NULL, *ivfine=NULL, *isfac=NULL;
-    PyObject *idef=NULL, *doption=NULL, *dfwhmxy=NULL, *dfwhmz=NULL;
+    PyObject *itzero=NULL, *iperiod=NULL, *iquad=NULL, *ivfine=NULL;
+    PyObject *isfac=NULL, *idef=NULL, *doption=NULL, *dfwhmxy=NULL;
+    PyObject *dfwhmz=NULL;
     PyArrayObject *darray=NULL, *warray=NULL, *garray=NULL;
     PyArrayObject *sarray=NULL;
 
@@ -1272,14 +1305,15 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     // get attributes.
     itzero  = PyObject_GetAttrString(map, "tzero");
     iperiod = PyObject_GetAttrString(map, "period");
+    iquad   = PyObject_GetAttrString(map, "quad");
     ivfine  = PyObject_GetAttrString(map, "vfine");
     isfac   = PyObject_GetAttrString(map, "sfac");
     data    = PyObject_GetAttrString(map, "data");
 
-    if(!itzero || !iperiod || !ivfine || !isfac || !data){
+    if(!itzero || !iperiod || !iquad || !ivfine || !isfac || !data){
         PyErr_SetString(PyExc_ValueError,
                         "doppler.read_map: one or more of "
-                        "data, tzero, period, vfine, sfac is missing");
+                        "data, tzero, period, quad, vfine, sfac is missing");
         goto failed;
     }
 
@@ -1293,6 +1327,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     // store values for easy ones
     tzero  = PyFloat_AsDouble(itzero);
     period = PyFloat_AsDouble(iperiod);
+    quad   = PyFloat_AsDouble(iquad);
     vfine  = PyFloat_AsDouble(ivfine);
     sfac   = PyFloat_AsDouble(isfac);
 
@@ -1332,8 +1367,11 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 }
                 int nddim = PyArray_NDIM(darray);
                 npy_intp *ddim = PyArray_DIMS(darray);
-                memcpy (timages, PyArray_DATA(darray), PyArray_NBYTES(darray));
-                timages += PyArray_SIZE(darray);
+
+                // Transfer data into output buffer
+                memcpy (images, PyArray_DATA(darray), PyArray_NBYTES(darray));
+                images += PyArray_SIZE(darray);
+
                 if(nddim == 2){
                     nxyz.push_back(Nxyz(ddim[1],ddim[0]));
                 }else{
@@ -1380,7 +1418,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                     PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
                                     " failed to locate an Image.default.option");
                     goto failed;
-                } 
+                }
                 int option = int(PyInt_AsLong(doption));
                 def.push_back(option);
                 if(option == 2 || option == 3){
@@ -1481,6 +1519,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     Py_XDECREF(data);
     Py_XDECREF(isfac);
     Py_XDECREF(ivfine);
+    Py_XDECREF(iquad);
     Py_XDECREF(iperiod);
     Py_XDECREF(itzero);
 
@@ -2038,7 +2077,7 @@ update_data(float const* flux, PyObject* Data)
                 // get fluxes if form that allows easy modification
                 array = (PyArrayObject*) \
                     PyArray_FromAny(sflux, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 2, NPY_INOUT_ARRAY | NPY_FORCECAST, 
+                                    2, 2, NPY_INOUT_ARRAY | NPY_FORCECAST,
                                     NULL);
                 if(!array){
                     PyErr_SetString(PyExc_ValueError, "doppler.update_data:"
@@ -2083,7 +2122,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     // Process and check arguments
     PyObject *map = NULL, *data = NULL;
     static const char *kwlist[] = {"map", "data", NULL};
-    if(!PyArg_ParseTupleAndKeywords(args, kwords, "OO", (char**)kwlist, 
+    if(!PyArg_ParseTupleAndKeywords(args, kwords, "OO", (char**)kwlist,
                                     &map, &data))
         return NULL;
 
@@ -2098,9 +2137,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
 
     // Read sizes
     size_t nipix, ndpix;
-    if(!npix_map(map, nipix))
-        return NULL;
-    if(!npix_data(data, ndpix))
+    if(!npix_map(map, nipix) || !npix_data(data, ndpix))
         return NULL;
 
     // declare the variables to hold the Map data
@@ -2110,11 +2147,11 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, sfac;
+    double tzero, period, quad, vfine, sfac;
 
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, vfine, sfac)){
+                 def, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
         delete [] image;
         return NULL;
     }
@@ -2140,7 +2177,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     }
 
     // calculate flux equivalent to image
-    op(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, 
+    op(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, quad,
        vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified data back into flux array
@@ -2152,8 +2189,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     delete[] flux;
     delete[] image;
 
-    // return the data
-    return Py_BuildValue("O", data);
+    Py_RETURN_NONE;
 }
 
 // Computes default image from map (test at the moment)
@@ -2164,7 +2200,7 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     // Process and check arguments
     PyObject *map = NULL;
     static const char *kwlist[] = {"map", NULL};
-    if(!PyArg_ParseTupleAndKeywords(args, kwords, "O", (char**)kwlist, 
+    if(!PyArg_ParseTupleAndKeywords(args, kwords, "O", (char**)kwlist,
                                     &map))
         return NULL;
 
@@ -2186,11 +2222,11 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, sfac;
+    double tzero, period, quad, vfine, sfac;
 
     // read the Map
     if(!read_map(map, input, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, vfine, sfac)){
+                 def, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
         delete [] output;
         delete [] input;
         return NULL;
@@ -2210,8 +2246,7 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     delete[] output;
     delete[] input;
 
-    // return the map
-    return Py_BuildValue("O", map);
+    Py_RETURN_NONE;
 }
 
 // Computes map to data operation transpose to comdat
@@ -2222,7 +2257,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     // Process and check arguments
     PyObject *data = NULL, *map = NULL;
     static const char *kwlist[] = {"data", "map", NULL};
-    if(!PyArg_ParseTupleAndKeywords(args, kwords, "OO", (char**)kwlist, 
+    if(!PyArg_ParseTupleAndKeywords(args, kwords, "OO", (char**)kwlist,
                                     &data, &map))
         return NULL;
 
@@ -2249,11 +2284,11 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<double> vxy, vz, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
-    double tzero, period, vfine, sfac;
+    double tzero, period, quad, vfine, sfac;
 
     // read the Map
-    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, 
-                 def, fwhmxy, fwhmz, tzero, period, vfine, sfac))
+    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale,
+                 def, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac))
         return NULL;
 
     // declare the variables to hold the Data data
@@ -2272,7 +2307,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
 
     // overwriting image
-    tr(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, 
+    tr(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, quad,
        vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified image back into the map
@@ -2284,8 +2319,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     delete[] flux;
     delete[] image;
 
-    // return the map
-    return Py_BuildValue("O", map);
+    Py_RETURN_NONE;
 }
 
 // Carries out mem iterations on a map given data
@@ -2294,18 +2328,37 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
 {
 
     // Process and check arguments
-    PyObject *data = NULL, *map = NULL;
-    static const char *kwlist[] = {"data", "map", NULL};
-    if(!PyArg_ParseTupleAndKeywords(args, kwords, "OO", (char**)kwlist, 
-                                    &data, &map))
+    PyObject *map = NULL, *data = NULL;
+    int niter;
+    float caim, tlim=1.e-4, rmax=0.2;
+    static const char *kwlist[] = {"map", "data", "niter", "caim",
+                                   "tlim", "rmax", NULL};
+    if(!PyArg_ParseTupleAndKeywords(args, kwords, "OOif|ff", (char**)kwlist,
+                                    &map, &data, &niter, &caim, &tlim, &rmax))
         return NULL;
 
-    if(data == NULL){
-        PyErr_SetString(PyExc_ValueError, "doppler.datcom: data is NULL");
+    if(map == NULL){
+        PyErr_SetString(PyExc_ValueError, "doppler.memit: map is NULL");
         return NULL;
     }
-    if(map == NULL){
-        PyErr_SetString(PyExc_ValueError, "doppler.datcom: map is NULL");
+    if(data == NULL){
+        PyErr_SetString(PyExc_ValueError, "doppler.memit: data is NULL");
+        return NULL;
+    }
+    if(niter < 1){
+        PyErr_SetString(PyExc_ValueError, "doppler.memit: niter < 1");
+        return NULL;
+    }
+    if(caim <= 0.){
+        PyErr_SetString(PyExc_ValueError, "doppler.memit: caim <= 0");
+        return NULL;
+    }
+    if(tlim >= 0.5){
+        PyErr_SetString(PyExc_ValueError, "doppler.memit: tlim >= 0.5");
+        return NULL;
+    }
+    if(rmax >= 0.5){
+        PyErr_SetString(PyExc_ValueError, "doppler.memit: rmax >= 0.5");
         return NULL;
     }
 
@@ -2316,58 +2369,77 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     if(!npix_data(data, ndpix))
         return NULL;
 
-    // Set memsys buffer
+    // Compute size needed for memsys buffer
     const size_t MXBUFF = Mem::memsize(nipix, ndpix);
-    std::cerr << "MEM buffer size = " << MXBUFF << std::endl;
 
+    // Allocate memory
     Mem::Gbl::st = new float[MXBUFF];
-    Dopp::wave   = new double[ndpix];
+    std::cerr << "Allocated " << MXBUFF*sizeof(float)
+              << " bytes to MEM buffer" << std::endl;
+
+    // Set pointer offsets
+    Mem::memcore(MXBUFF,nipix,ndpix);
 
     // read the Map straight into the MEM buffer and
     // the globals used to get to opus and tropus
-    if(!read_map(map, Mem::Gbl::st+Mem::Gbl::kb[0], 
-                 Dopp::nxyz, Dopp::vxy, Dopp::vz, 
+
+    if(!read_map(map, Mem::Gbl::st+Mem::Gbl::kb[0],
+                 Dopp::nxyz, Dopp::vxy, Dopp::vz,
                  Dopp::wavel, Dopp::gamma, Dopp::scale,
-                 Dopp::def, Dopp::fwhmxy, Dopp::fwhmz, 
-                 Dopp::tzero, Dopp::period, Dopp::vfine, 
-                 Dopp::sfac)){
-        delete[] Dopp::wave;
+                 Dopp::def, Dopp::fwhmxy, Dopp::fwhmz,
+                 Dopp::tzero, Dopp::period, Dopp::quad,
+                 Dopp::vfine, Dopp::sfac)){
         delete[] Mem::Gbl::st;
         return NULL;
     }
 
+    // Allocate memory for the wavelengths
+    Dopp::wave   = new double[ndpix];
+
     // read the data & errors straight into buffer
-    if(!read_data(data, Mem::Gbl::st+Mem::Gbl::kb[20], 
-                  Mem::Gbl::st+Mem::Gbl::kb[21], Dopp::wave, 
-                  Dopp::nwave, Dopp::nspec, Dopp::time, 
+    if(!read_data(data, Mem::Gbl::st+Mem::Gbl::kb[20],
+                  Mem::Gbl::st+Mem::Gbl::kb[21], Dopp::wave,
+                  Dopp::nwave, Dopp::nspec, Dopp::time,
                   Dopp::expose, Dopp::ndiv, Dopp::fwhm)){
         delete[] Dopp::wave;
         delete[] Mem::Gbl::st;
         return NULL;
     }
 
-    int def = 2, niter=10;
-    float c, test, acc=1., caim=1., cnew, s, rnew, snew, sumf;
-    float tlim=1.e-4, rmax=0.2;
-    int mode;
-    if(def == 1){
-        mode = 10;
-    }else if(def == 2){
-        mode = 30;
-    }else{
-        PyErr_SetString(PyExc_ValueError, "doppler.memit could not understand default option");
-        delete[] Dopp::wave;
-        delete[] Mem::Gbl::st;
-        return NULL;
-    }
+    float c, test, acc=1., cnew, s, rnew, snew, sumf;
+    int mode = 10;
+    for(size_t nd=0; nd<Dopp::def.size(); nd++)
+        if(Dopp::def[nd] > 1) mode = 30;
+
+    std::cerr << "mode = " << mode << std::endl;
 
     for(int it=0; it<niter; it++){
         std::cerr << "\nIteration " << it+1 << std::endl;
-        if(def == 2){
-            std::cerr << "Computing gaussian default ..." << std::endl;
-            float *iptr = Mem::Gbl::st+Mem::Gbl::kb[0], *optr = Mem::Gbl::st+Mem::Gbl::kb[19];
+        if(mode == 30){
+            std::cerr << "Computing default ..." << std::endl;
+            float *iptr = Mem::Gbl::st+Mem::Gbl::kb[0];
+            float *optr = Mem::Gbl::st+Mem::Gbl::kb[19];
             for(size_t nim=0; nim<Dopp::nxyz.size(); nim++){
-                gaussdef(iptr, Dopp::nxyz[nim], 10., 10., 10., optr);
+                size_t npix = Dopp::nxyz[nim].ntot();
+                if(Dopp::def[nim] == 1){
+                    double ave = 0.;
+                    for(size_t np=0; np<npix; np++)
+                        ave += iptr[np];
+                    ave /= npix;
+                    for(size_t np=0; np<npix; np++)
+                        optr[np] = float(ave);
+
+                }else if(Dopp::def[nim] == 2 || Dopp::def[nim] == 3){
+                    double fwhmx = Dopp::fwhmxy[nim]/Dopp::vxy[nim];
+                    double fwhmy = Dopp::fwhmxy[nim]/Dopp::vxy[nim];
+                    double fwhmz = 0.;
+                    if(Dopp::nxyz[nim].nz > 1)
+                        fwhmz = Dopp::fwhmz[nim]/Dopp::vz[nim];
+                    std::cerr << fwhmx << " " << fwhmy << " " << fwhmz << std::endl;
+
+                    gaussdef(iptr, Dopp::nxyz[nim],
+                             fwhmx, fwhmy, fwhmz, optr);
+                }
                 iptr += Dopp::nxyz[nim].ntot();
                 optr += Dopp::nxyz[nim].ntot();
             }
@@ -2383,17 +2455,16 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     delete[] Dopp::wave;
     delete[] Mem::Gbl::st;
 
-    // return the map
-    return Py_BuildValue("O", map);
+    Py_RETURN_NONE;
 }
-
 
 // The methods
 static PyMethodDef DopplerMethods[] = {
 
     {"comdat", (PyCFunction)doppler_comdat, METH_VARARGS | METH_KEYWORDS,
      "comdat(map, data)\n\n"
-     "computes the data equivalent to 'map' using 'data' as the template\n\n"
+     "computes the data equivalent to 'map' using 'data' as the template\n"
+     "On exit, 'data' is modified.\n\n"
     },
 
     {"comdef", (PyCFunction)doppler_comdef, METH_VARARGS | METH_KEYWORDS,
@@ -2420,7 +2491,3 @@ init_doppler(void)
     (void) Py_InitModule("_doppler", DopplerMethods);
     import_array();
 }
-
-
-
-
