@@ -41,7 +41,7 @@ class Default (object):
             self.fwhmz  = args[1]
         elif option != Default.UNIFORM:
             raise DopplerError('Default.__init__: invalid option and/or wrong number of arguments.')
-        
+
     @classmethod
     def uniform(cls):
         "Returns a uniform Default object"
@@ -76,7 +76,7 @@ class Image(object):
     systemic velocities, scaling factors, velocity scales of the image,
     default parameters. 2D images have square pixels in velocity space VXY on
     a side. 3D images can be thought of as a series of 2D images spaced by
-    VZ. 
+    VZ.
 
     The following attributes are set::
 
@@ -189,16 +189,19 @@ class Image(object):
         else:
             self.scale = None
 
-    def toHDU(self):
+    def toHDU(self, next):
         """
         Returns the Image as an astropy.io.fits.ImageHDU. The map is held as
         the main array. All the rest of the information is stored in the
         header.
+
+        Arguments::
+
+          next : a number to append to the EXTNAME header extension names.
         """
 
         # create header which contains all but the actual data array
         head = fits.Header()
-        head['TYPE'] = ('doppler.Image', 'Python object type')
         head['VXY']  = (self.vxy, 'Vx-Vy pixel size, km/s')
         if self.data.ndim == 3:
             head['VZ']  = (self.vz, 'Vz pixel size, km/s')
@@ -223,6 +226,7 @@ class Image(object):
             head['DEFAULT'] = ('Gaussian', 'Default option')
             head['FWHMXY']  = (self.default.fwhmxy, 'Vx-Vy blurring, km/s')
             head['FWHMZ']   = (self.default.fwhmz, 'Vz blurring, km/s')
+        head['EXTNAME'] = 'Image' + str(next)
 
         # ok return with ImageHDU
         return fits.ImageHDU(self.data,head)
@@ -292,7 +296,9 @@ class Map(object):
 
       tzero  : zeropoint of ephemeris in the same units as the times of the data
 
-      period : period of ephemer in the same units as the times of the data
+      period : period of ephemeris in the same units as the times of the data
+
+      quad   : quadratic term of ephemeris in the same units as the times of the data
 
       vfine  : km/s to use for the fine array used to project into before blurring.
                Should be a few times (5x at most) smaller than the km/s used for any
@@ -304,17 +310,21 @@ class Map(object):
                default.
     """
 
-    def __init__(self, head, data, tzero, period, vfine, sfac=0.0001):
+    def __init__(self, head, data, tzero, period, quad, vfine, sfac=0.0001):
         """
         Creates a Map object
 
-        head : an astropy.io.fits.Header object
+        head : an astropy.io.fits.Header object. A copy is taken as it
+               is likely to be modified (comments added if keyword VERSION
+               is not found)
 
         data : an Image or a list of Images
 
         tzero  : zeropoint of ephemeris in the same units as the times of the data
 
-        period : period of ephemer in the same units as the times of the data
+        period : period of ephemeris in the same units as the times of the data
+
+        quad   : quadratic term of ephemeris in the same units as the times of the data
 
         vfine : km/s to use for the fine array used to project into before
                 blurring.  Should be a few times (5x at most) smaller than
@@ -328,7 +338,49 @@ class Map(object):
         if not isinstance(head, fits.Header):
             raise DopplerError('Map.__init__: head' +
                                ' must be a fits.Header object')
-        self.head = head
+        self.head = head.copy()
+        # Here add comments on the nature of the data. The check
+        # on the presence of VERSION is to avoid adding the comments
+        # in when they are already there.
+        if 'VERSION' not in self.head:
+            self.head['VERSION'] = (VERSION, 'Software version number.')
+            self.head.add_blank('.....................................')
+            self.head.add_comment(
+                'This is a map file for the Python Doppler imaging package trm.doppler.')
+            self.head.add_comment(
+                'The Doppler map format stores one or more images in a series of HDUs')
+            self.head.add_comment(
+                'following the (empty) primary HDU. The images are either 2 or 3D and')
+            self.head.add_comment(
+                'span (Vx,Vy) or (Vx,Vy,Vz) space. The images are square in the Vx-Vy')
+            self.head.add_comment(
+                'plane, but can have an arbitrary dimension along the Vz axis. Likewise')
+            self.head.add_comment(
+                'the pixels are square in Vx-Vy (size VXY), but can have a different')
+            self.head.add_comment(
+                'size along the Vz axis (VZ). The values VXY and VZ are stored in the')
+            self.head.add_comment(
+                'headers of each HDU. Each image can apply to one or more atomic lines.')
+            self.head.add_comment(
+                'Each line requires specification of a laboratory wavelength (WAVE) and')
+            self.head.add_comment(
+                'systemic velocity (GAMMA). If there is more than one line, then each')
+            self.head.add_comment(
+                'requires a scaling factor (SCALE). Again these are contained in the HDU.')
+            self.head.add_comment(
+                'Each line also requires information on how to construct a default image')
+            self.head.add_comment(
+                'contained in the parameters DEFAULT, FWHMXY and FWHMZ (3D only).')
+            self.head.add_comment(
+                'The primary HDU contains some parameters that apply to all images. These')
+            self.head.add_comment(
+                'specify an ephemeris (TZERO, PERIOD, QUAD), a pixel size (VFINE) to be')
+            self.head.add_comment(
+                'use for an intermediate finely-spaced array during projection and an')
+            self.head.add_comment(
+                'overall scale factor (SFAC) designed to allow image values matching a')
+            self.head.add_comment(
+                'given data set to have values of order unity.')
 
         try:
             for i, image in enumerate(data):
@@ -345,8 +397,9 @@ class Map(object):
 
         self.tzero  = tzero
         self.period = period
+        self.quad   = quad
         self.vfine  = vfine
-        self.sfac  = sfac
+        self.sfac   = sfac
 
     @classmethod
     def rfits(cls, fname):
@@ -364,12 +417,14 @@ class Map(object):
         # Extract standard values that must be present
         tzero  = head['TZERO']
         period = head['PERIOD']
+        quad   = head['QUAD']
         vfine  = head['VFINE']
         sfac   = head['SFAC']
 
         # Remove from the header
         del head['TZERO']
         del head['PERIOD']
+        del head['QUAD']
         del head['VFINE']
         del head['SFAC']
 
@@ -379,7 +434,7 @@ class Map(object):
             data.append(Image.fromHDU(hdu))
 
         # OK, now make the map
-        return cls(head, data, tzero, period, vfine, sfac)
+        return cls(head, data, tzero, period, quad, vfine, sfac)
 
     def wfits(self, fname, clobber=True):
         """
@@ -389,19 +444,20 @@ class Map(object):
         head = self.head.copy()
         head['TZERO']  = (self.tzero, 'Zeropoint of ephemeris')
         head['PERIOD'] = (self.period, 'Period of ephemeris')
+        head['QUAD']   = (self.quad, 'Quadratic coefficient of ephemeris')
         head['VFINE']  = (self.vfine, 'Fine array spacing, km/s')
         head['SFAC']   = (self.sfac, 'Global scaling factor')
         hdul  = [fits.PrimaryHDU(header=head),]
-        for image in self.data:
-            hdul.append(image.toHDU())
+        for i, image in enumerate(self.data):
+            hdul.append(image.toHDU(i+1))
         hdulist = fits.HDUList(hdul)
         hdulist.writeto(fname, clobber=clobber)
 
     def __repr__(self):
         return 'Map(head=' + repr(self.head) + \
             ', data=' + repr(self.data) + ', tzero=' + repr(self.tzero) + \
-            ', period=' + repr(self.period) + ', vfine=' + repr(self.vfine) + \
-            ', sfac=' + repr(self.sfac) + ')'
+            ', period=' + repr(self.period) + ', quad=' + repr(self.quad) + \
+            ', vfine=' + repr(self.vfine) + ', sfac=' + repr(self.sfac) + ')'
 
 if __name__ == '__main__':
 
@@ -433,13 +489,14 @@ if __name__ == '__main__':
 
     tzero   =  2550000.
     period  =  0.15
+    quad    =  0.0
     vfine   =  10.
 
     print 'image2.default =',image2.default
 
     # create the Map
-    map = Map(head,[image1,image2],tzero,period,vfine)
-    
+    map = Map(head,[image1,image2],tzero,period,quad,vfine)
+
     # write to fits
     map.wfits('test.fits')
 
