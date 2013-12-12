@@ -842,8 +842,8 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 }
 
 /* gaussdef computes a gaussian default image by blurring in all three
- * directions.  The blurring is carried out using FFTs. This routine applies
- * the blurring to one image
+ * directions one after the other. The blurring is carried out using FFTs. 
+ * This routine applies the blurring to one image
  *
  * input  : input image (input)
  * nxyz   : dimensions. Only axes with dimensions > 1 are blurred. (input)
@@ -856,73 +856,57 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
               double fwhmy, double fwhmz, float *output){
 
-  // Work out buffer sizes needed for FFTs
-  size_t naddx = 2*int(3.*fwhmx+1.);
-  size_t ntotx = nxyz.nx + naddx;
-  const size_t NTOTX =
-      size_t(std::pow(2,int(std::ceil(std::log(ntotx)/std::log(2.)))));
-
-  size_t naddy = 2*int(3.*fwhmy+1.);
-  size_t ntoty = nxyz.ny + naddy;
-  const size_t NTOTY =
-      size_t(std::pow(2,int(std::ceil(std::log(ntoty)/std::log(2.)))));
-
-  size_t naddz = 2*int(3.*fwhmz+1.);
-  size_t ntotz = nxyz.nz + naddz;
-  const size_t NTOTZ =
-      size_t(std::pow(2,int(std::ceil(std::log(ntotz)/std::log(2.)))));
-
-  const size_t NTOT = std::max(std::max(NTOTX,NTOTY),NTOTZ);
-  const size_t NFFT = NTOT/2+1;
-
-  // Get memory
-
-  // input workspace
-  double *array = new double[NTOT];
-
-  // blurring array
-  double *blurr = new double[NTOT];
-
-  // FFT of blurring array
-  fftw_complex *bfft = (fftw_complex*)
-      fftw_malloc(sizeof(fftw_complex) * NFFT);
-
-  // FFT of the array to be blurred
-  fftw_complex *afft = (fftw_complex*)
-      fftw_malloc(sizeof(fftw_complex) * NFFT);
-
-  // create FFT plans for the blurr, work and final inverse
-  fftw_plan pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft,
-                                          FFTW_ESTIMATE);
-  fftw_plan pforw = fftw_plan_dft_r2c_1d(NTOT, array, afft,
-                                         FFTW_ESTIMATE);
-  fftw_plan pback = fftw_plan_dft_c2r_1d(NTOT, afft, array,
-                                         FFTW_ESTIMATE);
-
-  // some repeatedly used variables
-  size_t ix, iy, iz, nstep, k, m, n;
-  float *iptr, *iiptr, *optr, *ooptr;
-  double norm, sigma, prf;
-
   // copy input to output
   memcpy(output, input, nxyz.ntot()*sizeof(float));
+
+  // some repeatedly used variables
+  double norm, sigma, prf;
+  size_t ix, iy, iz, nstep, k, m, n;
+  size_t nadd, ntot, NTOT, NFFT;
+  float *iptr, *iiptr, *optr, *ooptr;
+  double *array, *blurr;
+  fftw_complex *bfft, *afft;
+  fftw_plan pblurr, pforw, pback;
 
   // Blurr in X
   if(nxyz.nx > 1 && fwhmx >= 0.){
 
+      // Work out buffer size needed for FFTs
+      nadd = 2*size_t(3.*fwhmx+1.);
+      ntot = nxyz.nx + nadd;
+      NTOT = size_t(std::pow(2,int(std::ceil(std::log(ntot)/std::log(2.)))));
+      NFFT = NTOT/2 + 1;
+
+      // input workspace
+      array = new double[NTOT];
+
+      // blurring array
+      blurr = new double[NTOT];
+
+      // FFT of blurring array
+      bfft = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+      // FFT of the array to be blurred
+      afft = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+      // create FFT plans for the blurr, work and final inverse
+      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, FFTW_ESTIMATE);
+      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, afft, FFTW_ESTIMATE);
+      pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, FFTW_ESTIMATE);
+
+      // all memory allocated. Get on with it.
       norm  = blurr[0] = 1.;
       sigma = fwhmx/EFAC;
-      for(m=1, n=NTOT-1; m<naddx/2; m++, n--){
+      for(m=1, n=NTOT-1; m<nadd/2; m++, n--){
           prf = std::exp(-std::pow(m/sigma,2)/2.);
           blurr[m] = blurr[n] = prf;
           norm += 2.*prf;
       }
 
       // zero the middle part
-      memset(blurr+naddx/2, 0, (NTOT-naddx+1)*sizeof(double));
+      memset(blurr+nadd/2, 0, (NTOT-nadd+1)*sizeof(double));
 
-      // Next line gets the FFT/inverse-FFT pair
-      // normalisation right.
+      // next line gets the FFT/inverse-FFT pair normalisation right.
       norm *= NTOT;
 
       // normalise
@@ -961,24 +945,56 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
                   optr[ix] = float(array[ix]);
           }
       }
+
+      // Recover memory
+      fftw_destroy_plan(pback);
+      fftw_destroy_plan(pforw);
+      fftw_destroy_plan(pblurr);
+      fftw_free(afft);
+      fftw_free(bfft);
+      delete[] blurr;
+      delete[] array;
   }
 
   // Blurr in Y
   if(nxyz.ny > 1 && fwhmy >= 0.){
 
+      // Work out buffer size needed for FFTs
+      nadd = 2*int(3.*fwhmy+1.);
+      ntot = nxyz.ny + nadd;
+      NTOT = size_t(std::pow(2,int(std::ceil(std::log(ntot)/std::log(2.)))));
+      NFFT = NTOT/2 + 1;
+
+      // input workspace
+      array = new double[NTOT];
+
+      // blurring array
+      blurr = new double[NTOT];
+
+      // FFT of blurring array
+      bfft = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+      // FFT of the array to be blurred
+      afft = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+      // create FFT plans for the blurr, work and final inverse
+      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, FFTW_ESTIMATE);
+      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, afft, FFTW_ESTIMATE);
+      pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, FFTW_ESTIMATE);
+
+      // all memory allocated, get on with it
       norm  = blurr[0] = 1.;
       sigma = fwhmy/EFAC;
-      for(m=1, n=NTOT-1; m<naddy/2; m++, n--){
+      for(m=1, n=NTOT-1; m<nadd/2; m++, n--){
           prf = std::exp(-std::pow(m/sigma,2)/2.);
           blurr[m] = blurr[n] = prf;
           norm += 2.*prf;
       }
 
       // zero the middle part
-      memset(blurr+naddy/2, 0, (NTOT-naddy+1)*sizeof(double));
+      memset(blurr+nadd/2, 0, (NTOT-nadd+1)*sizeof(double));
 
-      // Next line gets the FFT/inverse-FFT pair
-      // normalisation right.
+      // next line gets the FFT/inverse-FFT pair normalisation right.
       norm *= NTOT;
 
       // normalise
@@ -1018,24 +1034,56 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
                   *optr = float(array[iy]);
           }
       }
+
+      // Recover memory
+      fftw_destroy_plan(pback);
+      fftw_destroy_plan(pforw);
+      fftw_destroy_plan(pblurr);
+      fftw_free(afft);
+      fftw_free(bfft);
+      delete[] blurr;
+      delete[] array;
   }
 
   // Blurr in Z
   if(nxyz.nz > 1 && fwhmz >= 0.){
 
+      // Work out buffer size needed for FFTs
+      nadd = 2*int(3.*fwhmy+1.);
+      ntot = nxyz.ny + nadd;
+      NTOT = size_t(std::pow(2,int(std::ceil(std::log(ntot)/std::log(2.)))));
+      NFFT = NTOT/2 + 1;
+
+      // input workspace
+      array = new double[NTOT];
+
+      // blurring array
+      blurr = new double[NTOT];
+
+      // FFT of blurring array
+      bfft = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+      // FFT of the array to be blurred
+      afft = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+      // create FFT plans for the blurr, work and final inverse
+      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, FFTW_ESTIMATE);
+      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, afft, FFTW_ESTIMATE);
+      pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, FFTW_ESTIMATE);
+
+      // all memory allocated, get on with it
       norm  = blurr[0] = 1.;
       sigma = fwhmz/EFAC;
-      for(m=1, n=NTOT-1; m<naddz/2; m++, n--){
+      for(m=1, n=NTOT-1; m<nadd/2; m++, n--){
           prf = std::exp(-std::pow(m/sigma,2)/2.);
           blurr[m] = blurr[n] = prf;
           norm += 2.*prf;
       }
 
       // zero the middle part
-      memset(blurr+naddz/2, 0, (NTOT-naddz+1)*sizeof(double));
+      memset(blurr+nadd/2, 0, (NTOT-nadd+1)*sizeof(double));
 
-      // Next line gets the FFT/inverse-FFT pair
-      // normalisation right.
+      // next line gets the FFT/inverse-FFT pair normalisation right.
       norm *= NTOT;
 
       // normalise
@@ -1076,16 +1124,16 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
                   *optr = float(array[iz]);
           }
       }
-  }
 
-  // Get memory back
-  fftw_destroy_plan(pback);
-  fftw_destroy_plan(pforw);
-  fftw_destroy_plan(pblurr);
-  fftw_free(afft);
-  fftw_free(bfft);
-  delete[] blurr;
-  delete[] array;
+      // Get memory back
+      fftw_destroy_plan(pback);
+      fftw_destroy_plan(pforw);
+      fftw_destroy_plan(pblurr);
+      fftw_free(afft);
+      fftw_free(bfft);
+      delete[] blurr;
+      delete[] array;
+  }
 }
 
 // Wrap globals to get through to opus
@@ -2232,9 +2280,28 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
     }
 
+    // set the pointers
     float *iptr = input, *optr = output;
+
     for(size_t nim=0; nim<nxyz.size(); nim++){
-        gaussdef(iptr, nxyz[nim], 10., 10., 10., optr);
+        size_t npix = nxyz[nim].ntot();
+        if(def[nim] == 1){
+            double ave = 0.;
+            for(size_t np=0; np<npix; np++)
+                ave += iptr[np];
+            ave /= npix;
+            for(size_t np=0; np<npix; np++)
+                optr[np] = float(ave);
+
+        }else if(def[nim] == 2 || def[nim] == 3){
+            double fx = fwhmxy[nim]/vxy[nim];
+            double fy = fwhmxy[nim]/vxy[nim];
+            double fz = 0.;
+            if(nxyz[nim].nz > 1)
+                fz = fwhmz[nim]/vz[nim];
+
+            gaussdef(iptr, nxyz[nim], fx, fy, fz, optr);
+        }
         iptr += nxyz[nim].ntot();
         optr += nxyz[nim].ntot();
     }
@@ -2435,7 +2502,6 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
                     double fwhmz = 0.;
                     if(Dopp::nxyz[nim].nz > 1)
                         fwhmz = Dopp::fwhmz[nim]/Dopp::vz[nim];
-                    std::cerr << fwhmx << " " << fwhmy << " " << fwhmz << std::endl;
 
                     gaussdef(iptr, Dopp::nxyz[nim],
                              fwhmx, fwhmy, fwhmz, optr);
