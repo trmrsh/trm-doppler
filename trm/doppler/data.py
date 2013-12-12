@@ -121,26 +121,34 @@ class Spectra(object):
 
         return cls(flux,ferr,wave,time,expose,ndiv,fwhm)
 
-    def toHDUl(self):
+    def toHDUl(self, n):
         """
         Returns the Spectra as an equivalent list of astropy.io.fits HDUs (3
         image, 1 table, *not* an HDUList), suited to adding onto other hdus
         for eventual writing to a FITS file
+
+        Arguments::
+
+          n : a number to append to the EXTNAME header extension names.
         """
         head = fits.Header()
-        head['TYPE'] = 'Fluxes'
-        head['FWHM']  = (self.fwhm, 'FWHM in pixels')
+        head['TYPE']    = 'Fluxes'
+        head['EXTNAME'] = 'Flux' + str(n)
+        head['FWHM']    = (self.fwhm, 'FWHM in km/s')
         hdul = [fits.ImageHDU(self.flux,head),]
 
         head = fits.Header()
         head['TYPE'] = 'Flux errors'
+        head['EXTNAME'] = 'Ferr' + str(n)
         hdul.append(fits.ImageHDU(self.ferr,head))
 
         head = fits.Header()
         head['TYPE'] = 'Wavelengths'
+        head['EXTNAME'] = 'Wave' + str(n)
         hdul.append(fits.ImageHDU(self.wave,head))
 
         head = fits.Header()
+        head['EXTNAME'] = 'Time' + str(n)
         head['TYPE'] = 'Times'
 
         # make a table HDU
@@ -195,7 +203,37 @@ class Data(object):
                                    ' Spectra or a list of Spectra')
             self.data = [data,]
 
-        self.head = head
+        self.head = head.copy()
+        # Here add comments on the nature of the data. The check
+        # on the presence of VERSION is to avoid adding the comments
+        # in when they are already there.
+        if 'VERSION' not in self.head:
+            self.head['VERSION'] = (VERSION, 'Software version number.')
+            self.head.add_blank('.....................................')
+            self.head.add_comment(
+                'This is a data file for the Python Doppler imaging package trm.doppler.')
+            self.head.add_comment(
+                'The Doppler data format stores one or more datasets using a set of four')
+            self.head.add_comment(
+                'HDUs per dataset following the (empty) primary HDU. The 4 HDUs contain')
+            self.head.add_comment(
+                '(i) the fluxes, (ii) the flux uncertainties, (iii) the wavelengths,')
+            self.head.add_comment(
+                'and (iv) the times at the centres of the exposures, the exposure')
+            self.head.add_comment(
+                'durations and sub-division factors used to model finite duration')
+            self.head.add_comment(
+                'exposures. The last three are contained in a table HDU. The units')
+            self.head.add_comment(
+                'to be used are arbitrary as long as they are consistent in the case')
+            self.head.add_comment(
+                'of the wavelengths and times with the units used in the Doppler image')
+            self.head.add_comment(
+                'file. The only piece of numerical header information is the FWHM')
+            self.head.add_comment(
+                'resolution. This is specified per dataset and stored in the headers of')
+            self.head.add_comment(
+                'the first HDU of each dataset, the one which contains the fluxes.')
 
     @classmethod
     def rfits(cls, fname):
@@ -208,7 +246,7 @@ class Data(object):
         """
         hdul = fits.open(fname)
         if len(hdul) < 5 or len(hdul) % 4 != 1:
-            raise DopplerError('Data.rfits: ' + fname + 
+            raise DopplerError('Data.rfits: ' + fname +
                                ' did not have 4n+1 HDUs')
         head = hdul[0].header
         data = []
@@ -222,8 +260,8 @@ class Data(object):
         Writes a Data to an hdu list
         """
         hdul  = [fits.PrimaryHDU(header=self.head),]
-        for spectra in self.data:
-            hdul += spectra.toHDUl()
+        for i, spectra in enumerate(self.data):
+            hdul += spectra.toHDUl(i+1)
         hdulist = fits.HDUList(hdul)
         hdulist.writeto(fname, clobber=clobber)
 
