@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
-from __future__ import print_function 
+from __future__ import print_function
 
 usage = \
 """
-makedata creates a blank data file that can be used as a template for 
+makedata creates a blank data file that can be used as a template for
 creating data files, e.g. using comdat. Like makemap it is driven by
 a configuration file. Use the -w option to write out an example config
-file to start from. config files must end in ".cfg" 
+file to start from. config files must end in ".cfg"
 """
 
 import argparse, os, ConfigParser
@@ -23,9 +23,9 @@ parser.add_argument('config', help='configuration file name, output if -w is set
 parser.add_argument('data', nargs='?', default='mdat.fits', help='name of output data file')
 
 # optional
-parser.add_argument('-w', dest='write', action='store_true', 
+parser.add_argument('-w', dest='write', action='store_true',
                     help='Will write an example config file rather than read one')
-parser.add_argument('-c', dest='clobber', action='store_true', 
+parser.add_argument('-c', dest='clobber', action='store_true',
                     help='Clobber output files, both config for -w and the FITS file')
 
 # OK, done with arguments.
@@ -43,7 +43,7 @@ if args.write:
     # Example config file
     config = """\
 # This is an example of a configuration file needed by makedata.py to create
-# data template files for Doppler imaging, mainly for test purposes. It allows 
+# data template files for Doppler imaging, mainly for test purposes. It allows
 # you to define one or more datasets, which can have different numbers of spectra
 # The data arrays are created blank but can be filled in using a map and comdat.
 #
@@ -67,7 +67,7 @@ ORIGIN = makedata.py
 OBJECT = SS433
 
 # dataset sections. Each requires the following:
-# 
+#
 # wave1  : start wavelength (units must match those of maps)
 # wave2  : end wavelength (>wave1)
 # nwave  : number of wavelengths
@@ -87,7 +87,7 @@ wrms   = 0.02
 time1  = 50000.0
 time2  = 50000.1
 nspec  = 50
-error  = 0.3
+error  = 0.1
 fwhm   = 150.
 ndiv   = 1
 
@@ -99,7 +99,7 @@ wrms   = 0.01
 time1  = 50000.0
 time2  = 50000.1
 nspec  = 20
-error  = 0.2
+error  = 0.1
 fwhm   = 100.
 ndiv   = 3
 """
@@ -198,8 +198,9 @@ else:
         wave   = wave.reshape(1,nwave).repeat(nspec,axis=0)
 
         # add some ransom wobble onto it
-        wobble = np.random.normal(scale=wrms, size=nspec).reshape(nspec,1)
-        wave += wobble
+        if wrms > 0.:
+            wobble = np.random.normal(scale=wrms, size=nspec).reshape(nspec,1)
+            wave += wobble
 
         etime  = (time[-1]-time[0])/(nspec-1)
         expose = np.empty_like(time); expose.fill(etime)
