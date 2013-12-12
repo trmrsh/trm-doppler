@@ -41,10 +41,13 @@ if args.write:
     # Example config file
     config = """\
 # This is an example of a configuration file needed by makemap.py to create
-# starter Doppler maps. It allows you to define one or more images, each of
-# which can be associated with one or more atomic lines.  You will need to
-# define the dimensions of each image and the default to use during MEM
-# iterations.
+# starter Doppler maps showing all possible features rather than attempting
+# great realism. A few features are optional, as explained below. The config
+# file allows you to define one or more images, each of which can be
+# associated with one or more atomic lines.  You will need to define the
+# dimensions of each image and the default to use during MEM iterations. NB
+# You should respect data types, i.e. naturally floating point numbers need a
+# decimal point; integers do not.
 #
 # Main section:
 #
@@ -74,6 +77,7 @@ sfac     =  0.0001
 [fitshead]
 ORIGIN = makemap.py
 OBJECT = SS433
+DAT-OBS
 
 # image sections. Each image requires the following:
 #
@@ -106,9 +110,6 @@ fwhmz   = 0.
 wave1   = 486.1
 gamma1  = 100.
 scale1  = 1.0
-wave1   = 486.1
-gamma1  = 100.
-scale1  = 1.0
 wave2   = 434.0
 gamma2  = 120.
 scale2  = 0.6
@@ -125,16 +126,21 @@ fwhmz   = 0.
 wave1   = 468.6
 gamma1  = 100.
 
-# Next sections are optional. They allow the addition of gaussian
-# spots to make something more interesting than a constant. A
-# section like [spot1_2] means the second spot for image 1.
-# Each spot is defined by:
+# Next sections are optional. They allow the addition of spots and discs to
+# make something more interesting than a constant.
+#
+# Spots: These are gaussian in velocity space. A section like [spot1_2] means
+# the second spot for the first image.  Each spot is defined by:
 #
 # vx     : centre of spot in Vx
 # vy     : centre of spot in Vy
 # vz     : centre of spot in Vz (ignored if nz == 1)
 # fwhm   : FWHM width parameter
 # height : height.
+#
+# NB not every image has to have a spot, so you could just start with spot2_1
+# for example. Spots for non-existent images, e.g. spot3_1 here, will be
+# ignored, as will non-sequential spots such as an isolated spot2_5
 
 [spot1_1]
 vx     = 500
@@ -157,6 +163,41 @@ vz     = 0
 fwhm   = 500.
 height = 1.0
 
+# Discs: discs are defined by a centre of symmetry in Vx-Vy, a plane of symmetry in
+# Vz, a velocity of peak intensity, the intensity at peak, and outer and inner power
+# law exponents to define how the intensity changes away from the peak. i.e. for v > vpeak,
+# the intensity scales as (v/vpeak)**eout. In the Vz direction the disc  is gaussian.
+#
+# Each disc requires:
+#
+# vx    : centre of symmetry in Vx
+# vy    : centre of symmetry in Vy
+# vz    : centre of symmetry in Vz (only if nz > 1)
+# fwhmz : FWHM in Vz (only if nz > 1)
+# vpeak : velocity of peak (outer disc velocity)
+# ipeak : intensity per pixel at peak
+# eout  : outer power law exponent
+# ein   : inner power law exponent
+
+[disc1]
+vx    = 0
+vy    = -50.
+vz    = 0.
+fwhmz = 50.
+vpeak = 450.
+ipeak = 1.0
+eout  = -2.5
+ein   = +3.0
+
+[disc2]
+vx    = 0
+vy    = -50.
+vz    = 0.
+fwhmz = 50.
+vpeak = 550.
+ipeak = 0.5
+eout  = -2.5
+ein   = +3.0
 """
     with open(doppler.acfg(args.config),'w') as fout:
         fout.write(config.format(doppler.VERSION))
@@ -272,46 +313,67 @@ else:
             vx     = config.getfloat(spot,'vx')
             vy     = config.getfloat(spot,'vy')
             if nz > 1:
-                vz = config.getfloat(spot,'vz')
+                # need to avoid overwriting the vz
+                # pixel size parameter
+                vzs = config.getfloat(spot,'vz')
 
             if nspot == 1:
-                # Compute arrays
-                vrange = vxy*(nxy-1)/2.
-
-                # Aim in next bit is to return with array of squared
-                # distance from the spot centre.
-                x = y = np.linspace(-vrange,vrange,nxy)
+                # Compute coordinate arrays once
                 if nz == 1:
-                    x, y = np.meshgrid(x, y)
+                    x, y = doppler.meshgrid(nxy, vxy)
                 else:
-                    nx = ny = nxy
-                    vzrange = vz*(nz-1)/2.
-                    z = np.linspace(-vzrange,vzrange,nz)
+                    x, y, z = doppler.meshgrid(nxy, vxy, nz, vz)
 
-                    # carry out 3D version of meshgrid
-                    x = x.reshape(1,1,nx)
-                    y = y.reshape(1,ny,1)
-                    z = z.reshape(nz,1,1)
-
-                    # now extend in other 2 dimensions
-                    x = x.repeat(ny,axis=1)
-                    x = x.repeat(nz,axis=0)
-                    y = y.repeat(nx,axis=2)
-                    y = y.repeat(nz,axis=0)
-                    z = z.repeat(nx,axis=2)
-                    z = z.repeat(ny,axis=1)
-
-
+            # compute distance squared from centre of spot
             if nz == 1:
                 rsq = (x-vx)**2+(y-vy)**2
             else:
-                rsq = (x-vx)**2+(y-vy)**2+(z-vz)**2
+                rsq = (x-vx)**2+(y-vy)**2+(z-vzs)**2
 
             # Finally add in the spot
             array += height*np.exp(-rsq/((fwhm/doppler.EFAC)**2/2.))
 
             # move to the next one
             nspot += 1
+
+        # look for discs to add
+        disc = 'disc' + str(nimage)
+        if config.has_section(disc):
+            vx     = config.getfloat(disc,'vx')
+            vy     = config.getfloat(disc,'vy')
+            if nz > 1:
+                # need to avoid overwriting the vz
+                # pixel size parameter
+                vzs  = config.getfloat(spot,'vz')
+                sigz = config.getfloat(spot,'fwhmz')/doppler.EFAC
+
+            vpeak  = config.getfloat(disc,'vpeak')
+            ipeak  = config.getfloat(disc,'ipeak')
+            eout   = config.getfloat(disc,'eout')
+            ein    = config.getfloat(disc,'ein')
+
+            if nz == 1:
+                x, y = doppler.meshgrid(nxy, vxy)
+            else:
+                vzs = config.getfloat(spot,'vz')
+                x, y, z = doppler.meshgrid(nxy, vxy, nz, vz)
+
+            # cylindrical coord radius for each point
+            r = np.sqrt((x-vx)**2+(y-vy)**2)
+
+            # Add low velocity disc
+            add = r <= vpeak
+            if nz == 1:
+                array[add] += ipeak*(r[add]/vpeak)**ein
+            else:
+                array[add] += ipeak*np.exp(-(z[add]-vzs)**2/(2.*sigz**2))*(r[add]/vpeak)**ein
+
+            # Add high velocity disc
+            add = r > vpeak
+            if nz == 1:
+                array[add] += ipeak*(r[add]/vpeak)**eout
+            else:
+                array[add] += ipeak*np.exp(-(z[add]-vzs)**2/(2.*sigz**2))*(r[add]/vpeak)**eout
 
         # create and store image
         images.append(doppler.Image(array, vxy, wave, gamma, default, scale, vz))
