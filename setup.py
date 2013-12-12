@@ -35,7 +35,7 @@ setup(name='trm.doppler',
       packages = ['trm', 'trm.doppler'],
       ext_modules=[doppler],
       scripts=['scripts/makedata.py','scripts/makemap.py','scripts/comdat.py',
-               'scripts/memit.py', 'scripts/trtest.py'],
+               'scripts/memit.py', 'scripts/trtest.py','scripts/comdef.py'],
 
       # metadata
       author='Tom Marsh',
