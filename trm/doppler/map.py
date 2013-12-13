@@ -173,7 +173,7 @@ class Image(object):
 
     """
 
-    def __init__(self, data, itype, vxy, wave, gamma, default, scale=None, 
+    def __init__(self, data, itype, vxy, wave, gamma, default, scale=None,
                  vz=None, group=0):
         """
         Defines an Image. Arguments::
