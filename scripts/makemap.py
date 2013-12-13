@@ -77,18 +77,27 @@ sfac     =  0.0001
 [fitshead]
 ORIGIN = makemap.py
 OBJECT = SS433
-DAT-OBS
 
-# image sections. Each image requires the following:
+# image sections. Each image can have the following:
 #
+# itype  : image type parameter. Possible values are PUNIT, NUNIT, PSINE,
+#          NSINE, PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2
+# group  : An integer assigning the image to a group. 0 implies no group.
+#          Image groups are used to define images that should be treated
+#          as one when it comes to optimising scaling factors and systemic
+#          velocities. This parameter is optional. If not supplied the
+#          group will be assumed = 0.
 # nxy    : number of pixels on a side in Vx-Vy plane
 # nz     : number of Vz slice
 # vxy    : km/s/pixel in Vx-Vy plane
 # vz     : km/s/slice in Vz direction
 # back   : background value to set image to.
-# default: default to use (Uniform, Gaussian)
-# fwhmxy : if Gaussian, this is FWHM, km/s,to use in X-Y plane
-# fwhmz  : if Gaussian, this is FWHM, km/s, to use in Z (ignored if nz == 1)
+# default: default to use (UNIFORM, GAUSS2D, GAUSS3D)
+# bias   : bias factor to apply to default. Usually 1 (no bias), but if you
+#          want to suppress one image relative to another, a bias < 1 can be
+#          useful.
+# fwhmxy : if default=GAUSS2D or GAUSS3D, this is FWHM, km/s,to use in X-Y plane
+# fwhmz  : if default=GAUSS3D, this is FWHM, km/s, to use in Z 
 # wave1  : wavelength of first line associated with the image
 # gamma1 : systemic velocity, km/s, of first line associated with the image
 # scale1 : scale factor of first line associated with the image [ignored
@@ -98,13 +107,16 @@ DAT-OBS
 # scale2 : scale factor of second line associated with the image
 # wave3  : ... repeat as desired ...
 
+# this image is a standard one applying to 2 lines
 [image1]
+itype   = PUNIT
 nxy     = 250
 nz      = 1
 vxy     = 20.
 vz      = 0.
 back    = 1.e-6
-default = Gaussian
+default = GAUSS2D
+bias    = 1.
 fwhmxy  = 500.
 fwhmz   = 0.
 wave1   = 486.1
@@ -115,12 +127,90 @@ gamma2  = 120.
 scale2  = 0.6
 
 [image2]
+itype   = PUNIT
+group   = 1
 nxy     = 250
 nz      =  1
 vxy     = 20.
 vz      =  0.
 back    = 1.0e-6
-default = Gaussian
+default = GAUSS2D
+bias    = 1.
+fwhmxy  = 500.
+fwhmz   = 0.
+wave1   = 468.6
+gamma1  = 100.
+
+[image3]
+itype   = NUNIT
+group   = 1
+nxy     = 250
+nz      =  1
+vxy     = 20.
+vz      =  0.
+back    = 1.0e-6
+default = GAUSS2D
+bias    = 0.9
+fwhmxy  = 500.
+fwhmz   = 0.
+wave1   = 468.6
+gamma1  = 100.
+
+[image4]
+itype   = PSINE
+group   = 1
+nxy     = 250
+nz      =  1
+vxy     = 20.
+vz      =  0.
+back    = 1.0e-6
+default = GAUSS2D
+bias    = 0.9
+fwhmxy  = 500.
+fwhmz   = 0.
+wave1   = 468.6
+gamma1  = 100.
+
+[image5]
+itype   = NSINE
+group   = 1
+nxy     = 250
+nz      =  1
+vxy     = 20.
+vz      =  0.
+back    = 1.0e-6
+default = GAUSS2D
+bias    = 0.9
+fwhmxy  = 500.
+fwhmz   = 0.
+wave1   = 468.6
+gamma1  = 100.
+
+[image6]
+itype   = PCOSINE
+group   = 1
+nxy     = 250
+nz      =  1
+vxy     = 20.
+vz      =  0.
+back    = 1.0e-6
+default = GAUSS2D
+bias    = 0.9
+fwhmxy  = 500.
+fwhmz   = 0.
+wave1   = 468.6
+gamma1  = 100.
+
+[image7]
+itype   = NCOSINE
+group   = 1
+nxy     = 250
+nz      =  1
+vxy     = 20.
+vz      =  0.
+back    = 1.0e-6
+default = GAUSS2D
+bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
 wave1   = 468.6
@@ -162,6 +252,28 @@ vy     = 500
 vz     = 0
 fwhm   = 500.
 height = 1.0
+
+[spot3_1]
+vx     = 0
+vy     = 0
+vz     = 0
+fwhm   = 2000.
+height = 0.05
+
+# try to make something a bit like an irradiated secondary star
+[spot2_2]
+vx     = 0
+vy     = 300
+vz     = 0
+fwhm   = 200.
+height = 0.1
+
+[spot7_1]
+vx     = 0
+vy     = 300
+vz     = 0
+fwhm   = 200.
+height = 0.1
 
 # Discs: discs are defined by a centre of symmetry in Vx-Vy, a plane of symmetry in
 # Vz, a velocity of peak intensity, the intensity at peak, and outer and inner power
@@ -252,6 +364,9 @@ else:
                 exit(1)
             break
 
+        # effectively reverse usual dictionary look up
+        itype = doppler.ITNAMES.keys()[doppler.ITNAMES.values().index(config.get(img,'itype'))]
+
         nxy = config.getint(img,'nxy')
         nz  = config.getint(img,'nz')
         if nz > 1:
@@ -270,16 +385,32 @@ else:
         array.fill(back)
 
         # Default
-        defop = config.get(img,'default')
-        if defop == 'Uniform':
-            default = doppler.Default.uniform()
-        elif defop == 'Gaussian':
-            fwhmxy = config.getfloat(img,'fwhmxy')
+        defop = doppler.Default.DNAMES.keys()[doppler.Default.DNAMES.values().index(config.get(img,'default'))]
+        bias = config.getfloat(img,'bias')
+        if defop == doppler.Default.UNIFORM:
+            default = doppler.Default.uniform(bias)
+
+        elif defop == doppler.Default.GAUSS2D:
             if nz > 1:
-                fwhmz = config.getfloat(img,'fwhmz')
-                default = doppler.Default.gauss3d(fwhmxy, fwhmz)
-            else:
-                default = doppler.Default.gauss2d(fwhmxy)
+                print('Cannot use GAUSS2D default for 3D image')
+                print('Probably want GAUSS3D')
+                exit(1)
+            fwhmxy = config.getfloat(img,'fwhmxy')
+            default = doppler.Default.gauss2d(bias, fwhmxy)
+
+        elif defop == doppler.Default.GAUSS3D:
+            if nz == 1:
+                print('Cannot use GAUSS3D default for 2D image')
+                print('Probably want GAUSS2D')
+                exit(1)
+            fwhmxy = config.getfloat(img,'fwhmxy')
+            fwhmz = config.getfloat(img,'fwhmz')
+            default = doppler.Default.gauss3d(bias, fwhmxy, fwhmz)
+
+        if config.has_option(img, 'group'):
+            group = config.getint(img,'group')
+        else:
+            group = 0
 
         if config.has_option(img, 'wave2'):
             wave, gamma, scale = [], [], []
@@ -376,8 +507,8 @@ else:
                 array[add] += ipeak*np.exp(-(z[add]-vzs)**2/(2.*sigz**2))*(r[add]/vpeak)**eout
 
         # create and store image
-        images.append(doppler.Image(array, vxy, wave, gamma, default, scale, vz))
-        print('Created image number',nimage,', wavelength(s) =',wave)
+        images.append(doppler.Image(array, itype, vxy, wave, gamma, default, scale, vz, group))
+        print('Created image number',nimage,', wavelength(s) =',wave,'type =',doppler.ITNAMES[itype])
         nimage += 1
 
     # create the Map
