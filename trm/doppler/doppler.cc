@@ -2646,6 +2646,11 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
     }
 
+    // get errors into right form
+    float *eptr = Mem::Gbl::st + Mem::Gbl::kb[21];
+    for(size_t np = 0; np<ndpix; np++)
+        if(eptr[np] > 0.) eptr[np] = 2./std::pow(eptr[np],2)/ndpix;
+
     float c, test, acc=1., cnew, s, rnew, snew, sumf;
     int mode = 10;
     for(size_t nd=0; nd<Dopp::def.size(); nd++)
