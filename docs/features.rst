@@ -4,7 +4,26 @@ Features of the package
 trm.doppler represents a considerable advance upon the earlier F77 code used
 in Marsh & Horne (1988). Here are the main features and capabilities of the
 new package with "(*new*)" or "(*old*)" at the end of each section to indicate
-whether a given feature is new or not.
+whether a given feature is new or not. The page is meant to be brief and links
+to full write-ups of the more complex features are provided.
+
+Python
+------
+
+As well as scripts similar in function to the commands of the F77 package,
+trm.doppler includes classes for loading the data and map files into Python as
+well as functions to compute data from a model and the like. The classes allow
+easy access to everything contained in them.  This makes the development of
+scripts, both general and for one-off specialist use *much* easier than under
+the F77 version.  (*new*)
+
+FITS
+----
+
+Both the data and map files are now in FITS format allowing inspection with
+such well-known tools as *fv* and *ds9* as well as via Python. Above all this
+should facilitate the initial data import stage.
+(*new*)
 
 Multiple datasets
 -----------------
@@ -38,22 +57,23 @@ raw format they had at the telescope. (*new*)
 trm.doppler can use 3D images that vary in the Z-velocity component as well.
 (*new*)
 
-FITS
-----
+Negative images
+---------------
 
-Both the data and map files are now in FITS format allowing inspection with
-such well-known tools as *fv* and *ds9* as well as using *astropy.io.fits* for
-programmatic access perhaps, although see next for a simpler way.
-(*new*)
+It is possible to configure an image file to allow for negative regions in the
+image. Although in principle these should not be required, in practice it is
+far from uncommon. Negative regions can be modelled by assigning two images to
+the same line, one with a +1 scaling factor, the other with -1, and then
+controlling the fundamental degeneracy via the default with a bias towards the
+positive image (*new*).
 
-Python
-------
+Modulated maps
+--------------
 
-The package includes classes for loading the data and map files into
-Python. The classes allow easy access to everything contained in them.
-This makes the development of scripts, both general and for one-off specialist
-use much easier than under the F77 version.
-(*new*)
+Steeghs (??) introduced a new method to allow for sinusoidally-modulated
+fluxes in maps. These are common due to structures that rise out of the
+orbital plane, such as the mass donor star above all. Modulation maps can be
+created in trm.doppler (*new*).
 
 Blended lines
 -------------
