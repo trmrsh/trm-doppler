@@ -22,18 +22,44 @@ class Default (object):
     GAUSS2D  = 2
     GAUSS3D  = 3
 
-    def __init__(self, option, *args):
-        """
-        Creates a Default. 
+    DNAMES = {UNIFORM : 'UNIFORM',
+              GAUSS2D : 'GAUSS2D',
+              GAUSS3D : 'GAUSS3D'}
 
-        option = UNIFORM needs no other arguments.
-        option = GAUSS2D need the FWHM blurr to use over Vx-Vy (in km/s)
-        option = GAUSS3D need the FWHM blurr to use over Vx-Vy (in km/s) AND another FWHM to use
-                 in the Vz direction, also km/s.
+    def __init__(self, option, bias, *args):
+        """
+        Creates a Default.  option contains the default option which
+        can be one of UNIFORM, GAUSS2D or GAUSS3D. Each these takes
+        a different set of arguments.
+
+        For UNIFORM::
+
+         bias : a factor to pull the default level. Usually it should be
+                 set = 1, but values < 1 may be useful. It must always be
+                 > 0. A typical use is to support negative regions by having
+                 one image of type PUNIT (positive non-modulated), and another
+                 of type NUNIT (negative etc). A bias of 1 on the PUNIT image
+                 and 0.9 on the negative will tilt the balance to wards the
+                 positive overall.
+
+        For GAUSS2D::
+
+          bias : as above
+
+          fwhmxy : FWHM blurr in Vx-Vy-plane
+
+        For GAUSS3D::
+
+          bias : as above
+
+          fwhmxy : as above
+
+          fwhmz : FWHM blurr in Vz
 
         See also Default.uniform, Default.gauss2D, Default.gauss3d
         """
         self.option = option
+        self.bias   = bias
         if option == Default.GAUSS2D and len(args) == 1:
             self.fwhmxy = args[0]
         elif option == Default.GAUSS3D and len(args) == 2:
@@ -43,31 +69,65 @@ class Default (object):
             raise DopplerError('Default.__init__: invalid option and/or wrong number of arguments.')
 
     @classmethod
-    def uniform(cls):
+    def uniform(cls, bias):
         "Returns a uniform Default object"
-        return cls(Default.UNIFORM)
+        return cls(Default.UNIFORM, bias)
 
     @classmethod
-    def gauss2d(cls, fwhmxy):
+    def gauss2d(cls, bias, fwhmxy):
         "Returns a gaussian Default object for a 2D image"
-        return cls(Default.GAUSS2D, fwhmxy)
+        return cls(Default.GAUSS2D, bias, fwhmxy)
 
     @classmethod
-    def gauss3d(cls, fwhmxy, fwhmz):
+    def gauss3d(cls, bias, fwhmxy, fwhmz):
         "Returns a gaussian Default object for a 3D image"
-        return cls(Default.GAUSS3D, fwhmxy, fwhmz)
+        return cls(Default.GAUSS3D, bias, fwhmxy, fwhmz)
 
     def __repr__(self):
         """
         Returns a string representation of the Default
         """
-        rep = 'Default(option=' + repr(self.option)
+        rep = 'Default(option=' + repr(Default.DNAMES[self.option]) + \
+              ', bias=' + repr(self.bias)
         if self.option == Default.UNIFORM:
             return rep + ')'
         elif self.option == Default.GAUSS2D:
-            return rep + ',fwhmxy=' + repr(self.fwhmxy) + ')'
+            return rep + ', fwhmxy=' + repr(self.fwhmxy) + ')'
         elif self.option == Default.GAUSS3D:
-            return rep + ', fwhmxy=' + repr(self.fwhmxy) + ', fwhmz=' + repr(self.fwhmz) + ')'
+            return rep + ', fwhmxy=' + repr(self.fwhmxy) + \
+                                     ', fwhmz=' + repr(self.fwhmz) + ')'
+
+# Image types. P = positive, N = negative
+# UNIT means    x 1 at all phases
+# SINE means    x sin(2*pi*phase)
+# COSINE means  x cos(2*pi*phase)
+# SINE2 means   x sin(2*2*pi*phase)
+# COSINE2 means x cos(2*2*pi*phase)
+#
+# Together these allow negative region in images
+# as well as flux modulation ('modmap')
+PUNIT    =  1
+NUNIT    =  2
+PSINE    =  3
+NSINE    =  4
+PCOSINE  =  5
+NCOSINE  =  6
+PSINE2   =  7
+NSINE2   =  8
+PCOSINE2 =  9
+NCOSINE2 = 10
+
+ITNAMES = {
+    PUNIT    : 'PUNIT',
+    NUNIT    : 'NUNIT',
+    PSINE    : 'PSINE',
+    NSINE    : 'NSINE',
+    PCOSINE  : 'PCOSINE',
+    NCOSINE  : 'NCOSINE',
+    PSINE2   : 'PSINE2',
+    NSINE2   : 'NSINE2',
+    PCOSINE2 : 'PCOSINE2',
+    NCOSINE2 : 'NCOSINE2'}
 
 class Image(object):
     """
@@ -82,15 +142,22 @@ class Image(object):
 
       data    : the image data array, 2D or 3D.
 
+      itype   : Image type. Possible values PUNIT, NUNIT, PSINE, NSINE,
+                PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2.
+                Control modulation and sign of image. P = +, N = -. UNIT
+                = no modulation (i.e. normal doppler tom), sine, cosine etc
+                allow modulation as sine / cosine of phase. 2 means at twice
+                orbital frequency.
+
+      vxy     : pixel size in Vx-Vy plane, km/s, square.
+
       wave    : array of associated wavelengths (will be an array even if
                 only 1 value)
 
       gamma   : array of systemic velocities, one per wavelength
 
-      default : a Default object defining how the default is calculated for 
+      default : a Default object defining how the default is calculated for
                 mem.
-
-      vxy     : pixel size in Vx-Vy plane, km/s, square.
 
       scale   : scale factors to use if len(wave) > 1 (will still be defined
                 but probably = None otherwise)
@@ -98,13 +165,27 @@ class Image(object):
       vz      : km/s in vz direction if data.ndim == 3 (will still be defined
                 but probably = None otherwise)
 
+      group   : for computing optimum scale factors one needs to group images. e.g.
+                pairs of matching PUNIT / NUNIT, PSINE/ NSINE images need to be
+                scaled by the same factor. Use the group parameter (sequential
+                integers) to define such groups. If not defined, the image will
+                be assumed to be in a group on its own.
+
     """
 
-    def __init__(self, data, vxy, wave, gamma, default, scale=None, vz=None):
+    def __init__(self, data, itype, vxy, wave, gamma, default, scale=None, 
+                 vz=None, group=0):
         """
         Defines an Image. Arguments::
 
           data : the data array, either 2D or 3D.
+
+         itype : Image type. Possible values PUNIT, NUNIT, PSINE, NSINE,
+                 PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2.
+                 Control modulation and sign of image. P = +, N = -. UNIT
+                 = no modulation (i.e. normal doppler tom), sine, cosine etc
+                 allow modulation as sine / cosine of phase. 2 means at twice
+                 orbital frequency.
 
           vxy : the pixel size in the X-Y plane, same in both X and Y, units
                 km/s.
@@ -116,6 +197,7 @@ class Image(object):
 
           gamma : systemic velocity or velocities for each lines, km/s
 
+
           default : how to calculate the default image during mem iterations. This
                     should be a Default object.
 
@@ -126,6 +208,14 @@ class Image(object):
 
           vz : if data is 3D then you must supply a z-velocity spacing in
                km/s.
+
+          group : for computing optimum scale factors one needs to group
+                  images. e.g.  pairs of matching PUNIT / NUNIT, PSINE/
+                  NSINE images need to be scaled by the same factor. Use the
+                  group parameter (sequential positive integers) to define
+                  such groups. If group=0, the image will be assumed to be in
+                  a group on its own.
+
         """
         self.data = np.asarray(data, dtype=np.float32)
         if self.data.ndim < 2 or self.data.ndim > 3:
@@ -134,8 +224,9 @@ class Image(object):
         if self.data.ndim == 3 and vz is None:
             raise DopplerError('Image.__init__: vz must be defined for 3D data')
 
-        self.vxy  = vxy
-        self.vz   = vz
+        self.itype = itype
+        self.vxy   = vxy
+        self.vz    = vz
 
         # wavelengths
         self.wave = np.asarray(wave)
@@ -165,6 +256,10 @@ class Image(object):
             raise DopplerError('Image.__init__: default option must match image dimension, e.g. GAUSS2D for 2D images')
 
         self.default = default
+
+        self.group = group
+        if self.group < 0:
+            raise DopplerError('Image.__init__: group must be an integer >= 0')
 
         # scale factors
         if isinstance(scale, np.ndarray):
@@ -202,6 +297,9 @@ class Image(object):
 
         # create header which contains all but the actual data array
         head = fits.Header()
+
+        head['ITYPE']  = (ITNAMES[self.itype], 'Image type')
+
         head['VXY']  = (self.vxy, 'Vx-Vy pixel size, km/s')
         if self.data.ndim == 3:
             head['VZ']  = (self.vz, 'Vz pixel size, km/s')
@@ -217,15 +315,17 @@ class Image(object):
             head['WAVE1']  = (self.wave[0], 'Central wavelength')
             head['GAMMA1'] = (self.gamma[0], 'Systemic velocity, km/s')
 
-        if self.default.option == Default.UNIFORM:
-            head['DEFAULT'] = ('Uniform', 'Default option')
-        elif self.default.option == Default.GAUSS2D:
-            head['DEFAULT'] = ('Gaussian', 'Default option')
+        head['DEFAULT'] = (Default.DNAMES[self.default.option], 'Default option')
+
+        head['BIAS'] = (self.default.bias, 'Bias to steer image')
+
+        if self.default.option == Default.GAUSS2D:
             head['FWHMXY']  = (self.default.fwhmxy, 'Vx-Vy blurring, km/s')
         elif self.default.option == Default.GAUSS3D:
-            head['DEFAULT'] = ('Gaussian', 'Default option')
             head['FWHMXY']  = (self.default.fwhmxy, 'Vx-Vy blurring, km/s')
             head['FWHMZ']   = (self.default.fwhmz, 'Vz blurring, km/s')
+
+        head['GROUP']   = (self.group, 'Image group number (0=no group)')
         head['EXTNAME'] = 'Image' + str(next)
 
         # ok return with ImageHDU
@@ -241,12 +341,16 @@ class Image(object):
         head = hdu.header
         if 'VXY' not in head or 'NWAVE' not in head \
                 or 'WAVE1' not in head or 'GAMMA1' not in head \
-                or 'DEFAULT' not in head:
+                or 'DEFAULT' not in head or 'BIAS' not in head \
+                or 'ITYPE' not in head:
             raise DopplerError('Image.fromHDU: one or more of' +
                                ' VXY, NWAVE, WAVE1, GAMMA1, ' +
-                               'DEFAULT not found in HDU header')
+                               'DEFAULT, BIAS, ITYPE not found in HDU header')
 
-        vxy = head['VXY']
+        # effectively reverse usual dictionary look up
+        itype = ITNAMES.keys()[ITNAMES.values().index(head['ITYPE'])]
+
+        vxy   = head['VXY']
         if data.ndim == 3:
             vz = head['VZ']
         else:
@@ -262,25 +366,33 @@ class Image(object):
             if nwave > 1:
                 scale[n] = head['SCALE' + str(n+1)]
 
-        if head['DEFAULT'] == 'Uniform':
-            default = Default.uniform()
-        elif head['DEFAULT'] == 'Gaussian':
-            if data.ndim == 2:
-                if 'FWHMXY' not in head:
-                    raise DopplerError('Image.fromHDU: could not find FWHMXY')
-                default = Default.gauss2d(head['FWHMXY'])
-            else:
-                if 'FWHMXY' not in head or 'FWHMZ' not in head:
-                    raise DopplerError('Image.fromHDU: could not find FWHMXY and/or FWHMZ')
-                default = Default.gauss2d( head['FWHMXY'], head['FWHMZ'])
+        if head['DEFAULT'] == 'UNIFORM':
+            default = Default.uniform(head['BIAS'])
+        elif head['DEFAULT'] == 'GAUSS2D':
+            if 'FWHMXY' not in head:
+                raise DopplerError('Image.fromHDU: could not find FWHMXY')
+            default = Default.gauss2d(head['BIAS'], head['FWHMXY'])
+        elif head['DEFAULT'] == 'GAUSS3D':
+            if 'FWHMXY' not in head or 'FWHMZ' not in head:
+                raise DopplerError('Image.fromHDU: could not find '
+                                   'FWHMXY and/or FWHMZ')
+            default = Default.gauss3d(head['BIAS'], head['FWHMXY'],
+                                      head['FWHMZ'])
+        else:
+            raise DopplerError('Image.fromHDU: unrecognised default'
+                               ' option = ' + head['DEFAULT'])
 
-        return cls(data, vxy, wave, gamma, default, scale, vz)
+        group = head['GROUP']
+
+        return cls(data, itype, vxy, wave, gamma, default, scale, vz, group)
 
     def __repr__(self):
-        return 'Image(data=' + repr(self.data) + \
+        return \
+            'Image(data=' + repr(self.data) + ', itype=' + repr(ITNAMES[self.itype]) + \
             ', vxy=' + repr(self.vxy) + ', wave=' + repr(self.wave) + \
             ', gamma=' + repr(self.gamma) + ', default=' + repr(self.default) + \
-            ', scale=' + repr(self.scale) + ', vz=' + repr(self.vz) + ')'
+            ', scale=' + repr(self.scale) + ', vz=' + repr(self.vz) + \
+            ', group=' + repr(self.group) + ')'
 
 class Map(object):
     """
@@ -298,21 +410,22 @@ class Map(object):
 
       period : period of ephemeris in the same units as the times of the data
 
-      quad   : quadratic term of ephemeris in the same units as the times of the data
+      quad   : quadratic term of ephemeris in the same units as the times of
+               the data
 
-      vfine  : km/s to use for the fine array used to project into before blurring.
-               Should be a few times (5x at most) smaller than the km/s used for any
-               image.
+      vfine  : km/s to use for the fine array used to project into before
+               blurring. Should be a few times (5x at most) smaller than the
+               km/s used for any image.
 
-      sfac   : scale factor to use when computing data from the map. This is designed
-               to allow the map images to take on "reasonable" values when matching
-               a set of data. In the old F77 doppler code it was set to 0.0001 by
-               default.
+      sfac : scale factor to use when computing data from the map. This is
+             designed to allow the map images to take on "reasonable" values
+             when matching a set of data. In the old F77 doppler code it was
+             set to 0.0001 by default.
+
     """
 
     def __init__(self, head, data, tzero, period, quad, vfine, sfac=0.0001):
-        """
-        Creates a Map object
+        """Creates a Map object
 
         head : an astropy.io.fits.Header object. A copy is taken as it
                is likely to be modified (comments added if keyword VERSION
@@ -320,11 +433,13 @@ class Map(object):
 
         data : an Image or a list of Images
 
-        tzero  : zeropoint of ephemeris in the same units as the times of the data
+        tzero : zeropoint of ephemeris in the same units as the times of the
+                data
 
         period : period of ephemeris in the same units as the times of the data
 
-        quad   : quadratic term of ephemeris in the same units as the times of the data
+        quad   : quadratic term of ephemeris in the same units as the times
+                 of the data
 
         vfine : km/s to use for the fine array used to project into before
                 blurring.  Should be a few times (5x at most) smaller than
@@ -332,6 +447,7 @@ class Map(object):
 
         sfac : factor to multiply by when computing data corresponding to the
                map.
+
         """
 
         # some checks
@@ -372,15 +488,29 @@ class Map(object):
             self.head.add_comment(
                 'contained in the parameters DEFAULT, FWHMXY and FWHMZ (3D only).')
             self.head.add_comment(
-                'The primary HDU contains some parameters that apply to all images. These')
+                'Each image must have a defined type (ITYPE) one of: PUNIT, NUNIT,')
             self.head.add_comment(
-                'specify an ephemeris (TZERO, PERIOD, QUAD), a pixel size (VFINE) to be')
+                'PSINE, NSINE, PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2. The')
             self.head.add_comment(
-                'use for an intermediate finely-spaced array during projection and an')
+                'type determines the sign and modulation that the images adds in with.')
             self.head.add_comment(
-                'overall scale factor (SFAC) designed to allow image values matching a')
+                'P = +ve, N = -ve, UNIT = unmodulated, SINE / COSINE mean the flux of a')
             self.head.add_comment(
-                'given data set to have values of order unity.')
+                'pixel is modulated on the sin / cosine of orbital phase; SINE2 / COSINE2')
+            self.head.add_comment(
+                'modulate on the sin / cosine of twice the orbital phase. Images can also')
+            self.head.add_comment(
+                'be assigned to groups (GROUP) in order to simplify scaling and systemic')
+            self.head.add_comment(
+                'velocity optimisation. The primary HDU contains parameters that apply to')
+            self.head.add_comment(
+                'all images. These specify an ephemeris (TZERO, PERIOD, QUAD), a pixel')
+            self.head.add_comment(
+                'size (VFINE) to be used for an intermediate finely-spaced array during')
+            self.head.add_comment(
+                'projection and an overall scale factor (SFAC) designed to allow image')
+            self.head.add_comment(
+                'values matching a given data set to have values of order unity.')
 
         try:
             for i, image in enumerate(data):
@@ -461,7 +591,7 @@ class Map(object):
 
 if __name__ == '__main__':
 
-    # a header
+    # Generates a map, writes it to disc, reads it back, prints it
     head = fits.Header()
     head['OBJECT']   = ('IP Peg', 'Object name')
     head['TELESCOP'] = ('William Herschel Telescope', 'Telescope name')
@@ -477,15 +607,15 @@ if __name__ == '__main__':
     data1 += np.exp(-(((X+300.)/200.)**2+((Y+500.)/200.)**2)/2.)
     wave1  = np.array((486.2, 434.0))
     gamma1 = np.array((100., 100.))
-    def1   = Default.gauss2d(200.)
+    def1   = Default.gauss2d(1.,200.)
     scale1 = np.array((1.0, 0.5))
-    image1 = Image(data1, vxy, wave1, gamma1, def1, scale1)
+    image1 = Image(data1, PUNIT, vxy, wave1, gamma1, def1, scale1)
 
     data2  = np.exp(-(((X+300.)/200.)**2+((Y+300.)/200.)**2)/2.)
     wave2  = 468.6
     gamma2 = 150.
-    def2   = Default.gauss2d(200.)
-    image2 = Image(data2, vxy, wave2, gamma2, def2)
+    def2   = Default.gauss2d(1.,200.)
+    image2 = Image(data2, PUNIT, vxy, wave2, gamma2, def2)
 
     tzero   =  2550000.
     period  =  0.15
