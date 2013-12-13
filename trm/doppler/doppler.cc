@@ -47,6 +47,22 @@ struct Nxyz{
     size_t nx, ny, nz;
 };
 
+// enum to clarify default selection
+enum DefOpt {UNIFORM = 1, GAUSS2D = 2, GAUSS3D = 3};
+
+// enum of image types
+enum Itype {
+    PUNIT    =  1,
+    NUNIT    =  2,
+    PSINE    =  3,
+    NSINE    =  4,
+    PCOSINE  =  5,
+    NCOSINE  =  6,
+    PSINE2   =  7,
+    NSINE2   =  8,
+    PCOSINE2 =  9,
+    NCOSINE2 = 10};
+
 /* op computes the image to data transform that is the heart of Doppler
  * tomography. i.e it projects the image(s) to compute data corresponding to
  * each spectrum.
@@ -61,6 +77,7 @@ struct Nxyz{
  *  wavel  : central wavelengths for each image, vector/image, (input)
  *  gamma  : systemic velocities for each wavelength, vector/image, (input)
  *  scale  : scaling factors for each wavelength, vector/image, (input)
+ *  itype  : types for each image, (input)
  *  tzero  : ephemeris zero point, same units as the times (input)
  *  period : ephemeris period, same units as the times (input)
  *  quad   : quadratic term of ephemeris, same units as the times (input)
@@ -87,6 +104,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<double> >& wavel,
         const std::vector<std::vector<float> >& gamma,
         const std::vector<std::vector<float> >& scale,
+        const std::vector<Itype>& itype,
         double tzero, double period, double quad, double vfine, double sfac,
         float* data, const double* wave,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
@@ -184,7 +202,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     int nf, ifp1, ifp2;
 
     // phase, cosine, sine, weight factor
-    double tsub, phase, corr, deriv, cosp, sinp, weight;
+    double tsub, phase, corr, deriv, cosp, sinp, weight, itfac;
 
     // image indices
     size_t ix, iy, iz;
@@ -306,6 +324,44 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     cosp  = cos(2.*M_PI*phase);
                     sinp  = sin(2.*M_PI*phase);
 
+                    // Image type factor
+                    switch(itype[ni])
+                    {
+                    case PUNIT:
+                        itfac = +1.;
+                        break;
+                    case NUNIT:
+                        itfac = -1.;
+                        break;
+                    case PSINE:
+                        itfac = +sinp;
+                        break;
+                    case NSINE:
+                        itfac = -sinp;
+                        break;
+                    case PCOSINE:
+                        itfac = +cosp;
+                        break;
+                    case NCOSINE:
+                        itfac = -cosp;
+                        break;
+                    case PSINE2:
+                        itfac = +sin(4.*M_PI*phase);
+                        break;
+                    case NSINE2:
+                        itfac = -sin(4.*M_PI*phase);
+                        break;
+                    case PCOSINE2:
+                        itfac = +cos(4.*M_PI*phase);
+                        break;
+                    case NCOSINE2:
+                        itfac = -cos(4.*M_PI*phase);
+                        break;
+                    default:
+                        std::cerr << "unrecognised image type; programming error in op" << std::endl;
+                        itfac = 1.;
+                    }
+
                     // Inner loops are coming, so time to pre-compute some
                     // stuff for speed.
 
@@ -360,11 +416,12 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     // size. i.e. the pixel intensities should be thought of
                     // as being per (km/s)**2. The normalisation also ensures
                     // relative independence with respect to the value of
-                    // ntdiv
+                    // ntdiv. Also take opportunity to fold in image type
+                    // factor
                     if(ntdiv > 1 && (nt == 0 || nt == ntdiv - 1)){
-                        weight = std::pow(vxyi,2)/(2*(ntdiv-1));
+                        weight = itfac*std::pow(vxyi,2)/(2*(ntdiv-1));
                     }else{
-                        weight = std::pow(vxyi,2)/std::max(1,ntdiv-1);
+                        weight = itfac*std::pow(vxyi,2)/std::max(1,ntdiv-1);
                     }
                     for(nf=0; nf<nfine; nf++) fine[nf] += weight*tfine[nf];
                 }
@@ -466,6 +523,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
  *  wavel  : central wavelengths for each image, vector/image, (input)
  *  gamma  : systemic velocities for each wavelength, vector/image, (input)
  *  scale  : scaling factors for each wavelength, vector/image, (input)
+ *  itype  : types for each image, (input)
  *  tzero  : ephemeris zero point, same units as the times (input)
  *  period : ephemeris period, same units as the times (input)
  *  quad   : quadratic term of ephemeris
@@ -492,6 +550,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<std::vector<double> >& wavel,
         const std::vector<std::vector<float> >& gamma,
         const std::vector<std::vector<float> >& scale,
+        const std::vector<Itype>& itype,
         double tzero, double period, double quad, double vfine, double sfac,
         const float* data, const double* wave,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
@@ -586,7 +645,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     int nf, ifp1, ifp2;
 
     // phase, cosine, sine, weight factor
-    double tsub, phase, corr, deriv, cosp, sinp, weight;
+    double tsub, phase, corr, deriv, cosp, sinp, weight, itfac;
 
     // image indices
     size_t ix, iy, iz;
@@ -761,6 +820,44 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                     cosp  = cos(2.*M_PI*phase);
                     sinp  = sin(2.*M_PI*phase);
 
+                    // Image type factor
+                    switch(itype[ni])
+                    {
+                    case PUNIT:
+                        itfac = +1.;
+                        break;
+                    case NUNIT:
+                        itfac = -1.;
+                        break;
+                    case PSINE:
+                        itfac = +sinp;
+                        break;
+                    case NSINE:
+                        itfac = -sinp;
+                        break;
+                    case PCOSINE:
+                        itfac = +cosp;
+                        break;
+                    case NCOSINE:
+                        itfac = -cosp;
+                        break;
+                    case PSINE2:
+                        itfac = +sin(4.*M_PI*phase);
+                        break;
+                    case NSINE2:
+                        itfac = -sin(4.*M_PI*phase);
+                        break;
+                    case PCOSINE2:
+                        itfac = +cos(4.*M_PI*phase);
+                        break;
+                    case NCOSINE2:
+                        itfac = -cos(4.*M_PI*phase);
+                        break;
+                    default:
+                        std::cerr << "unrecognised image type; programming error in tr" << std::endl;
+                        itfac = 1.;
+                    }
+
                     // Inner loops are coming, so time to pre-compute some
                     // stuff for speed.
 
@@ -801,9 +898,9 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 
                     // [cf op]
                     if(ntdiv > 1 && (nt == 0 || nt == ntdiv - 1)){
-                        weight = std::pow(vxyi,2)/(2*(ntdiv-1));
+                        weight = itfac*std::pow(vxyi,2)/(2*(ntdiv-1));
                     }else{
-                        weight = std::pow(vxyi,2)/std::max(1,ntdiv-1);
+                        weight = itfac*std::pow(vxyi,2)/std::max(1,ntdiv-1);
                     }
                     for(nf=0; nf<nfine; nf++) tfine[nf] = weight*fine[nf];
 
@@ -1143,8 +1240,9 @@ namespace Dopp {
 
     // For Map objects
     std::vector<Nxyz> nxyz;
-    std::vector<int> def;
-    std::vector<double> vxy, vz, fwhmxy, fwhmz;
+    std::vector<DefOpt> def;
+    std::vector<Itype> itype;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
     double tzero, period, quad, vfine, sfac;
@@ -1165,8 +1263,8 @@ void Mem::opus(const int j, const int k){
     std::cerr << "    OPUS " << j+1 << " ---> " << k+1 << std::endl;
 
     op(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
-       Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::tzero, Dopp::period,
-       Dopp::quad, Dopp::vfine, Dopp::sfac,
+       Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype, 
+       Dopp::tzero, Dopp::period, Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
 }
@@ -1178,8 +1276,8 @@ void Mem::tropus(const int k, const int j){
     std::cerr << "  TROPUS " << j+1 << " <--- " << k+1 << std::endl;
 
     tr(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
-       Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::tzero, Dopp::period,
-       Dopp::quad, Dopp::vfine, Dopp::sfac,
+       Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype,
+       Dopp::tzero, Dopp::period, Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
 }
@@ -1295,6 +1393,7 @@ npix_map(PyObject *Map, size_t& npix)
  *  wave    :  vector of vectors of wavelengths for each image (output)
  *  gamma   :  vector of vectors of systemic velocities for each image (output)
  *  scale   :  vector of vectors of scale factors for each image (output)
+ *  itype   :  vector of image types
  *  def     :  default options for each image (output) [see map.py]
  *  fwhmxy  :  gaussian defaults, FWHM blurr in km/s in Vx-Vy(output)
  *  fwhmz   :  gaussian defaults, FWHM blurr in km/s in Vz (output)
@@ -1317,7 +1416,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
          std::vector<std::vector<double> >& wave,
          std::vector<std::vector<float> >& gamma,
          std::vector<std::vector<float> >& scale,
-         std::vector<int>& def, std::vector<double>& fwhmxy,
+         std::vector<Itype>& itype, std::vector<DefOpt>& def,
+         std::vector<double>& bias, std::vector<double>& fwhmxy,
          std::vector<double>& fwhmz, double& tzero,
          double& period, double& quad, double& vfine,
          double& sfac)
@@ -1334,8 +1434,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     PyObject *data=NULL, *image=NULL, *idata=NULL, *iwave=NULL;
     PyObject *igamma=NULL, *ivxy=NULL, *iscale=NULL, *ivz=NULL;
     PyObject *itzero=NULL, *iperiod=NULL, *iquad=NULL, *ivfine=NULL;
-    PyObject *isfac=NULL, *idef=NULL, *doption=NULL, *dfwhmxy=NULL;
-    PyObject *dfwhmz=NULL;
+    PyObject *isfac=NULL, *idef=NULL, *doption=NULL, *dbias=NULL;
+    PyObject *dfwhmxy=NULL, *dfwhmz=NULL, *iitype=NULL;
     PyArrayObject *darray=NULL, *warray=NULL, *garray=NULL;
     PyArrayObject *sarray=NULL;
 
@@ -1346,9 +1446,11 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     wave.clear();
     gamma.clear();
     def.clear();
+    bias.clear();
     fwhmxy.clear();
     fwhmz.clear();
     scale.clear();
+    itype.clear();
 
     // get attributes.
     itzero  = PyObject_GetAttrString(map, "tzero");
@@ -1400,10 +1502,11 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
             igamma = PyObject_GetAttrString(image, "gamma");
             idef   = PyObject_GetAttrString(image, "default");
             iscale = PyObject_GetAttrString(image, "scale");
+            iitype = PyObject_GetAttrString(image, "itype");
             ivxy   = PyObject_GetAttrString(image, "vxy");
             ivz    = PyObject_GetAttrString(image, "vz");
 
-            if(idata && iwave && igamma && ivxy && idef && iscale && ivz){
+            if(idata && iwave && igamma && ivxy && idef && iitype && iscale && ivz){
 
                 darray = (PyArrayObject*)                               \
                     PyArray_FromAny(idata, PyArray_DescrFromType(NPY_FLOAT),
@@ -1467,9 +1570,31 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                                     " failed to locate an Image.default.option");
                     goto failed;
                 }
-                int option = int(PyInt_AsLong(doption));
+                // store the image type
+                DefOpt option;
+                switch(PyInt_AsLong(doption))
+                {
+                case 1:
+                    option = UNIFORM;
+                    break;
+                case 2:
+                    option = GAUSS2D;
+                    break;
+                case 3:
+                    option = GAUSS3D;
+                    break;
+                }
                 def.push_back(option);
-                if(option == 2 || option == 3){
+
+                dbias = PyObject_GetAttrString(idef, "bias");
+                if(!dbias){
+                    PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
+                                    " failed to locate an Image.default.bias");
+                    goto failed;
+                }
+                bias.push_back(PyFloat_AS_DOUBLE(dbias));
+
+                if(option == GAUSS2D || option == GAUSS3D){
                     dfwhmxy = PyObject_GetAttrString(idef, "fwhmxy");
                     if(!dfwhmxy){
                         PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
@@ -1478,7 +1603,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                     }
                     fwhmxy.push_back(PyFloat_AS_DOUBLE(dfwhmxy));
                 }
-                if(option == 3){
+
+                if(option == GAUSS3D){
                     dfwhmz = PyObject_GetAttrString(idef, "fwhmz");
                     if(!dfwhmz){
                         PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
@@ -1493,6 +1619,41 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
 
                 // store the Vz spacing
                 if(nddim == 3) vz.push_back(PyFloat_AsDouble(ivz));
+
+                // store the image type
+                switch(PyInt_AsLong(iitype))
+                {
+                case 1:
+                    itype.push_back(PUNIT);
+                    break;
+                case 2:
+                    itype.push_back(NUNIT);
+                    break;
+                case 3:
+                    itype.push_back(PSINE);
+                    break;
+                case 4:
+                    itype.push_back(NSINE);
+                    break;
+                case 5:
+                    itype.push_back(PCOSINE);
+                    break;
+                case 6:
+                    itype.push_back(NCOSINE);
+                    break;
+                case 7:
+                    itype.push_back(PSINE2);
+                    break;
+                case 8:
+                    itype.push_back(NSINE2);
+                    break;
+                case 9:
+                    itype.push_back(PCOSINE2);
+                    break;
+                case 10:
+                    itype.push_back(NCOSINE2);
+                    break;
+                }
 
                 // scale factors, if needed
                 if(wdim[0] > 1){
@@ -1525,9 +1686,11 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 Py_CLEAR(darray);
                 Py_CLEAR(dfwhmz);
                 Py_CLEAR(dfwhmxy);
+                Py_CLEAR(dbias);
                 Py_CLEAR(doption);
                 Py_CLEAR(ivz);
                 Py_CLEAR(ivxy);
+                Py_CLEAR(iitype);
                 Py_CLEAR(iscale);
                 Py_CLEAR(idef);
                 Py_CLEAR(igamma);
@@ -1555,8 +1718,10 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     Py_XDECREF(ivz);
     Py_CLEAR(dfwhmz);
     Py_CLEAR(dfwhmxy);
+    Py_CLEAR(dbias);
     Py_CLEAR(doption);
     Py_XDECREF(ivxy);
+    Py_XDECREF(iitype);
     Py_XDECREF(iscale);
     Py_CLEAR(idef);
     Py_XDECREF(igamma);
@@ -2191,15 +2356,16 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     // declare the variables to hold the Map data
     float* image = new float[nipix];
     std::vector<Nxyz> nxyz;
-    std::vector<int> def;
-    std::vector<double> vxy, vz, fwhmxy, fwhmz;
+    std::vector<DefOpt> def;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
+    std::vector<Itype> itype;
     double tzero, period, quad, vfine, sfac;
 
     // read the Map
-    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
+    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, itype,
+                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
         delete [] image;
         return NULL;
     }
@@ -2225,7 +2391,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     }
 
     // calculate flux equivalent to image
-    op(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, quad,
+    op(image, nxyz, vxy, vz, wavel, gamma, scale, itype, tzero, period, quad,
        vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified data back into flux array
@@ -2266,15 +2432,16 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     float* input  = new float[nipix];
     float* output = new float[nipix];
     std::vector<Nxyz> nxyz;
-    std::vector<int> def;
-    std::vector<double> vxy, vz, fwhmxy, fwhmz;
+    std::vector<DefOpt> def;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
+    std::vector<Itype> itype;
     double tzero, period, quad, vfine, sfac;
 
     // read the Map
-    if(!read_map(map, input, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
+    if(!read_map(map, input, nxyz, vxy, vz, wavel, gamma, scale, itype,
+                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
         delete [] output;
         delete [] input;
         return NULL;
@@ -2290,6 +2457,7 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
             for(size_t np=0; np<npix; np++)
                 ave += iptr[np];
             ave /= npix;
+            ave *= Dopp::bias[nim];
             for(size_t np=0; np<npix; np++)
                 optr[np] = float(ave);
 
@@ -2301,6 +2469,9 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
                 fz = fwhmz[nim]/vz[nim];
 
             gaussdef(iptr, nxyz[nim], fx, fy, fz, optr);
+            double bfac = Dopp::bias[nim];
+            for(size_t np=0; np<npix; np++)
+                optr[np] *= bfac;
         }
         iptr += nxyz[nim].ntot();
         optr += nxyz[nim].ntot();
@@ -2347,15 +2518,16 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     // declare the variables to hold the Map data
     float* image = new float[nipix];
     std::vector<Nxyz> nxyz;
-    std::vector<int> def;
-    std::vector<double> vxy, vz, fwhmxy, fwhmz;
+    std::vector<DefOpt> def;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
+    std::vector<Itype> itype;
     double tzero, period, quad, vfine, sfac;
 
     // read the Map
-    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale,
-                 def, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac))
+    if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, itype,
+                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac))
         return NULL;
 
     // declare the variables to hold the Data data
@@ -2374,7 +2546,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
 
     // overwriting image
-    tr(image, nxyz, vxy, vz, wavel, gamma, scale, tzero, period, quad,
+    tr(image, nxyz, vxy, vz, wavel, gamma, scale, itype, tzero, period, quad,
        vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
 
     // write modified image back into the map
@@ -2453,9 +2625,10 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     if(!read_map(map, Mem::Gbl::st+Mem::Gbl::kb[0],
                  Dopp::nxyz, Dopp::vxy, Dopp::vz,
                  Dopp::wavel, Dopp::gamma, Dopp::scale,
-                 Dopp::def, Dopp::fwhmxy, Dopp::fwhmz,
-                 Dopp::tzero, Dopp::period, Dopp::quad,
-                 Dopp::vfine, Dopp::sfac)){
+                 Dopp::itype, Dopp::def, Dopp::bias,
+                 Dopp::fwhmxy, Dopp::fwhmz, Dopp::tzero,
+                 Dopp::period, Dopp::quad, Dopp::vfine,
+                 Dopp::sfac)){
         delete[] Mem::Gbl::st;
         return NULL;
     }
@@ -2476,7 +2649,7 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     float c, test, acc=1., cnew, s, rnew, snew, sumf;
     int mode = 10;
     for(size_t nd=0; nd<Dopp::def.size(); nd++)
-        if(Dopp::def[nd] > 1) mode = 30;
+        if(Dopp::def[nd] > 1 || Dopp::bias[nd] != 1.) mode = 30;
 
     std::cerr << "mode = " << mode << std::endl;
 
@@ -2488,15 +2661,16 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
             float *optr = Mem::Gbl::st+Mem::Gbl::kb[19];
             for(size_t nim=0; nim<Dopp::nxyz.size(); nim++){
                 size_t npix = Dopp::nxyz[nim].ntot();
-                if(Dopp::def[nim] == 1){
+                if(Dopp::def[nim] == UNIFORM){
                     double ave = 0.;
                     for(size_t np=0; np<npix; np++)
                         ave += iptr[np];
                     ave /= npix;
+                    ave *= Dopp::bias[nim];
                     for(size_t np=0; np<npix; np++)
                         optr[np] = float(ave);
 
-                }else if(Dopp::def[nim] == 2 || Dopp::def[nim] == 3){
+                }else if(Dopp::def[nim] == GAUSS2D || Dopp::def[nim] == GAUSS3D){
                     double fwhmx = Dopp::fwhmxy[nim]/Dopp::vxy[nim];
                     double fwhmy = Dopp::fwhmxy[nim]/Dopp::vxy[nim];
                     double fwhmz = 0.;
@@ -2505,6 +2679,9 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
 
                     gaussdef(iptr, Dopp::nxyz[nim],
                              fwhmx, fwhmy, fwhmz, optr);
+                    double bfac = Dopp::bias[nim];
+                    for(size_t np=0; np<npix; np++)
+                        optr[np] *= bfac;
                 }
                 iptr += Dopp::nxyz[nim].ntot();
                 optr += Dopp::nxyz[nim].ntot();
