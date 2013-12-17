@@ -1,10 +1,11 @@
-// The hard work of Doppler imaging is done by the code here. Much of code
-// (~1000 lines or so) is unedifying "boilerplate" for interfacing Python and
-// C++, and in particular to the C++ mem routines. The minimal number of
-// routines needed to do this is provided. Most manipulations of the objects
-// are better left to Python. The main routines that do the hard work in mem
-// are op and tr that carry out the image to data projection and its
-// transpose.
+// The hard work of Doppler imaging is done by the code here. Much of code is
+// unedifying "boilerplate" for interfacing Python and C++, and in particular
+// to the C++ mem routines. The minimal number of routines needed to do this
+// is provided. Most manipulations of the objects are better left to
+// Python. The main routines that do the hard work in mem are op and tr that
+// carry out the image to data projection and its transpose. Note that they
+// both include some openmp-parallelised sections so you need to take some
+// care with thread-safety if changing either of these.
 //
 // The data, structure and routines in this file are as follows::
 //
@@ -133,7 +134,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
     // Now calculate vmax = 2*(maximum projected velocity) of any pixel
     // relative to the (possibly gamma shifted) line centre
-    size_t nimage = nxyz.size(), nx, ny, nz;
+    size_t ny, nx, nz, nimage = nxyz.size();
     double vmax = 0.;
     for(size_t nim=0; nim<nimage; nim++){
         nx = nxyz[nim].nx;
@@ -182,9 +183,10 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
     // Grab space for fine arrays
     double *fine  = new double[NFINE];
-    double *tfine = new double[NFINE];
 
     // create plans for blurr, fine pixel and final inverse FFTs
+    // must be here not inside parallelised loop because they
+    // are not thread-safe
     fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft,
                                             FFTW_ESTIMATE);
     fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft,
@@ -193,36 +195,24 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                                             FFTW_ESTIMATE);
 
     // various local variables
-    size_t k, m, n;
-    double norm, prf, fp1, fp2, v1, v2, sum;
-    double w1, w2, wv, sc;
+    size_t m, n;
+    double norm, prf, v1, v2;
+    double w1, w2, wv;
     float gm;
-
-    // pixel index in fine array
-    int nf, ifp1, ifp2;
-
-    // phase, cosine, sine, weight factor
-    double tsub, phase, corr, deriv, cosp, sinp, weight, itfac;
-
-    // image indices
-    size_t ix, iy, iz;
 
     // image velocity steps xy and z
     double vxyi, vzi = 0.;
 
-    // steps and offsets in fine pixel space
-    double pxstep, pystep, pzstep, pxoff, pyoff, pzoff;
-
     // temporary image & data pointers
-    const float *iptr, *iiptr;
-    float *dptr;
+    const float *iptr;
     const double *wptr;
 
     // large series of nested loops coming up.
     // First zero the data array
     memset(data, 0, ndpix*sizeof(float));
 
-    // Loop over each data set
+    // Loop over each data set. doff is a pointer
+    // to get to the start of the dataset
     for(size_t nd=0; nd<nspec.size(); nd++){
 
         // compute blurring array (specific to the dataset so can't be done
@@ -291,20 +281,43 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
             if(nz > 1) vzi = vz[ni];
 
             // loop through each spectrum of the data set
-            dptr = data;
-            wptr = wave;
-            for(size_t ns=0; ns<nspec[nd];
-                ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
 
-                // This initialisation is needed per spectrum
+            // Next loop contains the main effort, which should
+            // be pretty much the same per spectrum, hence we
+            // parallelise it
+#pragma omp parallel for
+            for(int ns=0; ns<int(nspec[nd]); ns++){
+
+                // declare variables here so they are unique to each thread
+                int nf, ifp1, ifp2;
+                size_t ix, iy, iz, k, m;
+                double cosp, sinp, phase, tsub, corr, deriv, sum;
+                double pxoff, pyoff, pzoff, pxstep, pystep, pzstep;
+                double weight, itfac, wv, sc, v1, v2, fp1, fp2;
+                float gm;
+                const float *iiptr;
+
+                // unique pointers for each thread
+                float        *dptr = data + nwave[nd]*ns;
+                const double *wptr = wave + nwave[nd]*ns;
+
+                // this for the FFT of the fine pixel array
+                fftw_complex *fpfft = (fftw_complex*)
+                    fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+                // Grab space for fine arrays
+                double *fine  = new double[NFINE];
+                double *tfine = new double[nfine];
+
+                // Zero the fine array
                 memset(fine, 0, NFINE*sizeof(double));
 
                 // Loop over sub-spectra to simulate finite exposures
                 int ntdiv = ndiv[nd][ns];
                 for(int nt=0; nt<ntdiv; nt++){
 
-                    // This initialisation is needed per sub-spectrum
-                    memset(tfine, 0, NFINE*sizeof(double));
+                    // Zero the sub fine array
+                    memset(tfine, 0, nfine*sizeof(double));
 
                     // Compute phase over uniformly spaced set from start to
                     // end of exposure. Times are assumed to be mid-exposure
@@ -316,8 +329,8 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
                     // Two Newton-Raphson corrections for quadratic term
                     for(int nc=0; nc<2; nc++){
-                        corr   = tzero+period*phase+quad*std::pow(phase,2) - tsub;
-                        deriv  = period+2.*quad*phase;
+                        corr  = tzero+period*phase+quad*std::pow(phase,2) - tsub;
+                        deriv = period+2.*quad*phase;
                         phase -= corr/deriv;
                     }
 
@@ -385,11 +398,6 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                         pzstep = 0.;
                     }
 
-                    // We are about to loop through the image so set the image
-                    // pointer at the start of the current image. This is
-                    // incremented in the innermost loop
-                    iiptr = iptr;
-
                     // Project onto the fine array. These are the innermost
                     // loops which need to be as fast as possible. Each loop
                     // initialises a pixel index and a pixel offset that are
@@ -399,12 +407,17 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     // value in if it is. Per cycle of the innermost loop there
                     // are 4 additions (2 integer, 2 double), 1 rounding,
                     // 1 conversion to an integer and 2 comparisons.
-                    for(iz=0; iz<nz; iz++, pzoff+=pzstep){
-                        for(iy=0, pyoff=pzoff-pystep*double(ny-1)/2.;
-                            iy<ny; iy++, pyoff+=pystep){
-                            for(ix=0, pxoff=pyoff-pxstep*double(nx-1)/2.;
-                                ix<nx; ix++, pxoff+=pxstep, iiptr++){
-                                nf  = int(round(pxoff));
+
+                    iiptr = iptr;
+                    for(iz=0; iz<nz; iz++){
+                        pzoff += pzstep;
+                        pyoff  = pzoff - pystep*double(ny-1)/2.;
+                        for(iy=0; iy<ny; iy++){
+                            pyoff += pystep;
+                            pxoff  = pyoff - pxstep*double(nx-1)/2.;
+                            for(ix=0; ix<nx; ix++, iiptr++){
+                                pxoff += pxstep;
+                                nf = int(round(pxoff));
                                 if(nf >= 0 && nf < nfine) tfine[nf] += *iiptr;
                             }
                         }
@@ -430,14 +443,14 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 // image for the current spectrum. We now applying the blurring.
 
                 // Take FFT of fine array
-                fftw_execute(pforw);
+                fftw_execute_dft_r2c(pforw, fine, fpfft);
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
                 for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
 
                 // Take the inverse FFT
-                fftw_execute(pback);
+                fftw_execute_dft_c2r(pback, fpfft, fine);
 
                 // We now need to add the blurred array into the spectrum once
                 // for each wavelength associated with the current image. Do
@@ -489,7 +502,13 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                         v1 = v2;
                     }
                 }
-            }
+
+                // clear memory.
+                delete[] fine;
+                delete[] tfine;
+                fftw_free(fpfft);
+
+            } // end of parallel section
 
             // advance the image pointer
             iptr += nz*ny*nx;
@@ -504,7 +523,6 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     fftw_destroy_plan(pback);
     fftw_destroy_plan(pforw);
     fftw_destroy_plan(pblurr);
-    delete[] tfine;
     delete[] fine;
     fftw_free(fpfft);
     fftw_free(bfft);
@@ -625,7 +643,6 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 
     // Grab space for fine arrays
     double *fine  = new double[NFINE];
-    double *tfine = new double[NFINE];
 
     // create plans for the blurring, fine pixeland final inverse FFTs
     fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft,
@@ -636,29 +653,16 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                                             FFTW_ESTIMATE);
 
     // various local variables
-    size_t k, m, n;
-    double norm, prf, fp1, fp2, v1, v2;
-    double w1, w2, wv, sc, add;
+    size_t m, n;
+    double norm, prf, v1, v2;
+    double w1, w2, wv;
     float gm;
-
-    // pixel index in fine array
-    int nf, ifp1, ifp2;
-
-    // phase, cosine, sine, weight factor
-    double tsub, phase, corr, deriv, cosp, sinp, weight, itfac;
-
-    // image indices
-    size_t ix, iy, iz;
 
     // image velocity steps xy and z
     double vxyi, vzi = 0.;
 
-    // steps and offsets in fine pixel space
-    double pxstep, pystep, pzstep, pxoff, pyoff, pzoff;
-
     // temporary image & data pointers
-    float *iptr, *iiptr;
-    const float *dptr;
+    float *iptr;
     const double *wptr;
 
     // large series of nested loops coming up.
@@ -733,12 +737,33 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
             if(nz > 1) vzi = vz[ni];
 
             // loop through each spectrum of the data set
-            dptr = data;
-            wptr = wave;
-            for(size_t ns=0; ns<nspec[nd];
-                ns++, dptr+=nwave[nd], wptr+=nwave[nd]){
+#pragma omp parallel for
+            for(int ns=0; ns<int(nspec[nd]); ns++){
 
-                // This initialisation is needed per spectrum
+                // declare variables here so they are unique to each thread
+                int nf, ifp1, ifp2;
+                size_t ix, iy, iz, k, m;
+                double cosp, sinp, phase, tsub, corr, deriv, add;
+                double pxoff, pyoff, pzoff, pxstep, pystep, pzstep;
+                double weight, itfac, wv, sc, v1, v2, fp1, fp2;
+                float gm;
+                float *iiptr;
+
+                // unique pointers for each thread
+                const float  *dptr = data + nwave[nd]*ns;
+                const double *wptr = wave + nwave[nd]*ns;
+
+                // Next 3 lines of code grab temporary memory.
+                // They have to be here because this is the 
+                // parallel loop.
+                fftw_complex *fpfft = (fftw_complex*)
+                    fftw_malloc(sizeof(fftw_complex) * NFFT);
+
+                // Grab space for fine arrays
+                double *fine  = new double[NFINE];
+                double *tfine = new double[nfine];
+
+                // Zero the fine array
                 memset(fine, 0, NFINE*sizeof(double));
 
                 // [cf op]. This is the final step in op, here it comes the
@@ -788,15 +813,14 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                 // next section, blurring of fine array, stays same cf op
 
                 // Take FFT of fine array
-                fftw_execute(pforw);
+                fftw_execute_dft_r2c(pforw, fine, fpfft);
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
-                for(k=0; k<NFFT; k++)
-                    fpfft[k] *= bfft[k];
+                for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
 
                 // Take the inverse FFT
-                fftw_execute(pback);
+                fftw_execute_dft_c2r(pback, fpfft, fine);
 
                 // Loop over sub-spectra to simulate finite exposures
                 int ntdiv = ndiv[nd][ns];
@@ -881,11 +905,6 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                         pzstep = 0.;
                     }
 
-                    // We are about to loop through the image so set the image
-                    // pointer at the start of the current image. This is
-                    // incremented in the innermost loop
-                    iiptr = iptr;
-
                     // Project onto the fine array. These are the innermost
                     // loops which need to be as fast as possible. Each loop
                     // initialises a pixel index and a pixel offset that are
@@ -904,19 +923,28 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                     }
                     for(nf=0; nf<nfine; nf++) tfine[nf] = weight*fine[nf];
 
-                    for(iz=0; iz<nz; iz++, pzoff+=pzstep){
-                        for(iy=0, pyoff=pzoff-pystep*double(ny-1)/2.;
-                            iy<ny; iy++, pyoff+=pystep){
-                            for(ix=0, pxoff=pyoff-pxstep*double(nx-1)/2.;
-                                ix<nx; ix++, pxoff+=pxstep, iiptr++){
+                    iiptr = iptr;
+                    for(iz=0; iz<nz; iz++){
+                        pzoff += pzstep;
+                        pyoff  = pzoff - pystep*double(ny-1)/2.;
+                        for(iy=0; iy<ny; iy++){
+                            pyoff += pystep;
+                            pxoff  = pyoff - pxstep*double(nx-1)/2.;
+                            for(ix=0; ix<nx; ix++, iiptr++){
+                                pxoff += pxstep;
                                 nf  = int(round(pxoff));
                                 if(nf >= 0 && nf < nfine) *iiptr += tfine[nf];
                             }
                         }
                     }
-
                 }
-            }
+
+                // clear memory.
+                delete[] fine;
+                delete[] tfine;
+                fftw_free(fpfft);
+
+            } // end of parallel section
 
             // advance the image pointer
             iptr += nz*ny*nx;
@@ -931,7 +959,6 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     fftw_destroy_plan(pback);
     fftw_destroy_plan(pforw);
     fftw_destroy_plan(pblurr);
-    delete[] tfine;
     delete[] fine;
     fftw_free(fpfft);
     fftw_free(bfft);
@@ -939,7 +966,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 }
 
 /* gaussdef computes a gaussian default image by blurring in all three
- * directions one after the other. The blurring is carried out using FFTs. 
+ * directions one after the other. The blurring is carried out using FFTs.
  * This routine applies the blurring to one image
  *
  * input  : input image (input)
@@ -1102,8 +1129,8 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       fftw_execute(pblurr);
       nstep = nxyz.nx;
       for(iz=0; iz<nxyz.nz; iz++){
-          iiptr = output + nxyz.nx*nxyz.nz*iz;
-          ooptr = output + nxyz.nx*nxyz.nz*iz;
+          iiptr = output + nxyz.nx*nxyz.ny*iz;
+          ooptr = output + nxyz.nx*nxyz.ny*iz;
 
           for(ix=0; ix<nxyz.nx; ix++, iiptr++, ooptr++){
 
@@ -1146,8 +1173,8 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
   if(nxyz.nz > 1 && fwhmz >= 0.){
 
       // Work out buffer size needed for FFTs
-      nadd = 2*int(3.*fwhmy+1.);
-      ntot = nxyz.ny + nadd;
+      nadd = 2*int(3.*fwhmz+1.);
+      ntot = nxyz.nz + nadd;
       NTOT = size_t(std::pow(2,int(std::ceil(std::log(ntot)/std::log(2.)))));
       NFFT = NTOT/2 + 1;
 
@@ -1191,16 +1218,14 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       fftw_execute(pblurr);
 
       nstep = nxyz.nx*nxyz.ny;
-
+      iiptr = ooptr = output;
       for(iy=0; iy<nxyz.ny; iy++){
-          iiptr = output + nxyz.nx*iy;
-          ooptr = output + nxyz.nx*iy;
           for(ix=0; ix<nxyz.nx; ix++, iiptr++, ooptr++){
 
               // transfer data to double work array
               iptr = iiptr;
               for(iz=0; iz<nxyz.nz; iz++, iptr+=nstep)
-                  array[iy] = double(*iptr);
+                  array[iz] = double(*iptr);
 
               // zeropad
               memset(array+nxyz.nz, 0, (NTOT-nxyz.nz)*sizeof(double));
@@ -2457,7 +2482,7 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
             for(size_t np=0; np<npix; np++)
                 ave += iptr[np];
             ave /= npix;
-            ave *= Dopp::bias[nim];
+            ave *= bias[nim];
             for(size_t np=0; np<npix; np++)
                 optr[np] = float(ave);
 
@@ -2467,9 +2492,8 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
             double fz = 0.;
             if(nxyz[nim].nz > 1)
                 fz = fwhmz[nim]/vz[nim];
-
             gaussdef(iptr, nxyz[nim], fx, fy, fz, optr);
-            double bfac = Dopp::bias[nim];
+            double bfac = bias[nim];
             for(size_t np=0; np<npix; np++)
                 optr[np] *= bfac;
         }

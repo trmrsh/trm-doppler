@@ -27,15 +27,17 @@ doppler = Extension('trm.doppler._doppler',
                     include_dirs    = include_dirs,
                     library_dirs    = library_dirs,
                     runtime_library_dirs = library_dirs,
-                    libraries       = ['mem', 'fftw3', 'm'],
+                    libraries       = ['mem', 'fftw3', 'gomp', 'm'],
+                    extra_compile_args=['-fopenmp'],
                     sources         = [os.path.join('trm', 'doppler', 'doppler.cc')])
 
 setup(name='trm.doppler',
-      version='0.1',
+      version='0.9',
       packages = ['trm', 'trm.doppler'],
       ext_modules=[doppler],
       scripts=['scripts/makedata.py','scripts/makemap.py','scripts/comdat.py',
-               'scripts/memit.py', 'scripts/trtest.py','scripts/comdef.py'],
+               'scripts/memit.py', 'scripts/trtest.py','scripts/comdef.py',
+               'scripts/drlimit.py'],
 
       # metadata
       author='Tom Marsh',
