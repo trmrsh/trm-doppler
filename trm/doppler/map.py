@@ -66,7 +66,8 @@ class Default (object):
             self.fwhmxy = args[0]
             self.fwhmz  = args[1]
         elif option != Default.UNIFORM:
-            raise DopplerError('Default.__init__: invalid option and/or wrong number of arguments.')
+            raise DopplerError('Default.__init__: invalid option'
+                               ' and/or wrong number of arguments.')
 
     @classmethod
     def uniform(cls, bias):
@@ -165,16 +166,21 @@ class Image(object):
       vz      : km/s in vz direction if data.ndim == 3 (will still be defined
                 but probably = None otherwise)
 
-      group   : for computing optimum scale factors one needs to group images. e.g.
-                pairs of matching PUNIT / NUNIT, PSINE/ NSINE images need to be
-                scaled by the same factor. Use the group parameter (sequential
-                integers) to define such groups. If not defined, the image will
-                be assumed to be in a group on its own.
+      group   : for computing optimum scale factors one needs to group images.
+                e.g. pairs of matching PUNIT / NUNIT, PSINE/ NSINE images need
+                to be scaled by the same factor. Use the group parameter
+                (sequential integers) to define such groups. If not defined,
+                the image will be assumed to be in a group on its own.
 
+      pgroup  : similar to group, this parameters allows you to link N-/P-
+                pairs together for plots. The idea is that only the difference
+                between such images is of any interest, and this allows you
+                to say which goes with which. Unlike group, this should only
+                be used for opposite pairs.
     """
 
     def __init__(self, data, itype, vxy, wave, gamma, default, scale=None,
-                 vz=None, group=0):
+                 vz=None, group=0, pgroup=0):
         """
         Defines an Image. Arguments::
 
@@ -216,6 +222,12 @@ class Image(object):
                   such groups. If group=0, the image will be assumed to be in
                   a group on its own.
 
+          pgroup : similar to group, this parameters allows you to link N-/P-
+                pairs together for plots. The idea is that only the difference
+                between such images is of any interest, and this allows you
+                to say which goes with which. Unlike group, this should only
+                be used for opposite pairs.
+
         """
         self.data = np.asarray(data, dtype=np.float32)
         if self.data.ndim < 2 or self.data.ndim > 3:
@@ -253,13 +265,18 @@ class Image(object):
 
         if (default.option == Default.GAUSS2D and data.ndim == 3) or \
                 (default.option == Default.GAUSS3D and data.ndim == 2):
-            raise DopplerError('Image.__init__: default option must match image dimension, e.g. GAUSS2D for 2D images')
+            raise DopplerError('Image.__init__: default option must match'
+                               ' image dimension, e.g. GAUSS2D for 2D images')
 
         self.default = default
 
         self.group = group
         if self.group < 0:
             raise DopplerError('Image.__init__: group must be an integer >= 0')
+
+        self.pgroup = pgroup
+        if self.pgroup < 0:
+            raise DopplerError('Image.__init__: pgroup must be an integer >= 0')
 
         # scale factors
         if isinstance(scale, np.ndarray):
@@ -326,6 +343,7 @@ class Image(object):
             head['FWHMZ']   = (self.default.fwhmz, 'Vz blurring, km/s')
 
         head['GROUP']   = (self.group, 'Image group number (0=no group)')
+        head['PGROUP']  = (self.pgroup, 'Plot group number (0=no group)')
         head['EXTNAME'] = 'Image' + str(next)
 
         # ok return with ImageHDU
@@ -382,17 +400,21 @@ class Image(object):
             raise DopplerError('Image.fromHDU: unrecognised default'
                                ' option = ' + head['DEFAULT'])
 
-        group = head['GROUP']
+        group  = head['GROUP']
+        pgroup = head['PGROUP']
 
-        return cls(data, itype, vxy, wave, gamma, default, scale, vz, group)
+        return cls(data, itype, vxy, wave, gamma, default, scale, vz,
+                   group, pgroup)
 
     def __repr__(self):
         return \
-            'Image(data=' + repr(self.data) + ', itype=' + repr(ITNAMES[self.itype]) + \
-            ', vxy=' + repr(self.vxy) + ', wave=' + repr(self.wave) + \
-            ', gamma=' + repr(self.gamma) + ', default=' + repr(self.default) + \
+            'Image(data=' + repr(self.data) + ', itype=' + \
+            repr(ITNAMES[self.itype]) + ', vxy=' + repr(self.vxy) + \
+            ', wave=' + repr(self.wave) + ', gamma=' + \
+            repr(self.gamma) + ', default=' + repr(self.default) + \
             ', scale=' + repr(self.scale) + ', vz=' + repr(self.vz) + \
-            ', group=' + repr(self.group) + ')'
+            ', group=' + repr(self.group) + \
+            ', pgroup=' + repr(self.pgroup) + ')'
 
 class Map(object):
     """
@@ -502,15 +524,17 @@ class Map(object):
             self.head.add_comment(
                 'be assigned to groups (GROUP) in order to simplify scaling and systemic')
             self.head.add_comment(
-                'velocity optimisation. The primary HDU contains parameters that apply to')
+                'velocity optimisation. The related PGROUP parameter defines pairs that')
             self.head.add_comment(
-                'all images. These specify an ephemeris (TZERO, PERIOD, QUAD), a pixel')
+                'need differencing for plots. The primary HDU contains parameters that')
             self.head.add_comment(
-                'size (VFINE) to be used for an intermediate finely-spaced array during')
+                'apply to all images. These specify an ephemeris (TZERO, PERIOD, QUAD),')
             self.head.add_comment(
-                'projection and an overall scale factor (SFAC) designed to allow image')
+                'a pixel size (VFINE) to be used for an intermediate finely-spaced array')
             self.head.add_comment(
-                'values matching a given data set to have values of order unity.')
+                'during projection and an overall scale factor (SFAC) designed to allow')
+            self.head.add_comment(
+                'image values matching a given data set to have values of order unity.')
 
         try:
             for i, image in enumerate(data):

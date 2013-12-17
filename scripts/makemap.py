@@ -86,7 +86,14 @@ OBJECT = SS433
 #          Image groups are used to define images that should be treated
 #          as one when it comes to optimising scaling factors and systemic
 #          velocities. This parameter is optional. If not supplied the
-#          group will be assumed = 0.
+#          group will be assumed = 0. The reason for having this is that
+#          you may well not want to allow the modulation components to scale
+#          arbitrarily since they may make so little difference to the result.
+#          This allows you to link them to the main image instead.
+# pgroup : if you have defined equivalent P- and N-type images, they should
+#          always be differenced for plots. This parameter allows you to
+#          identify pairs which need treating in this manner, and functions
+#          like group. It is optional, and defaults to 0.
 # nxy    : number of pixels on a side in Vx-Vy plane
 # nz     : number of Vz slice
 # vxy    : km/s/pixel in Vx-Vy plane
@@ -126,9 +133,12 @@ wave2   = 434.0
 gamma2  = 120.
 scale2  = 0.6
 
+# The next set of images define an image that has negative regions near the
+# line centre as well as a modulated component.
 [image2]
 itype   = PUNIT
 group   = 1
+pgroup  = 1
 nxy     = 250
 nz      =  1
 vxy     = 20.
@@ -144,6 +154,7 @@ gamma1  = 100.
 [image3]
 itype   = NUNIT
 group   = 1
+pgroup  = 1
 nxy     = 250
 nz      =  1
 vxy     = 20.
@@ -159,6 +170,7 @@ gamma1  = 100.
 [image4]
 itype   = PSINE
 group   = 1
+pgroup  = 2
 nxy     = 250
 nz      =  1
 vxy     = 20.
@@ -174,6 +186,7 @@ gamma1  = 100.
 [image5]
 itype   = NSINE
 group   = 1
+pgroup  = 2
 nxy     = 250
 nz      =  1
 vxy     = 20.
@@ -189,6 +202,7 @@ gamma1  = 100.
 [image6]
 itype   = PCOSINE
 group   = 1
+pgroup  = 3
 nxy     = 250
 nz      =  1
 vxy     = 20.
@@ -204,6 +218,7 @@ gamma1  = 100.
 [image7]
 itype   = NCOSINE
 group   = 1
+pgroup  = 3
 nxy     = 250
 nz      =  1
 vxy     = 20.
@@ -216,8 +231,11 @@ fwhmz   = 0.
 wave1   = 468.6
 gamma1  = 100.
 
-# Next sections are optional. They allow the addition of spots and discs to
-# make something more interesting than a constant.
+# The next sections are entirely optional and should normally be removed if
+# you are starting a real map since they are really aimed at creating
+# artificial test maps. They allow the addition of spots and discs to make
+# something more interesting than a constant, whereas generally once wants to
+# start from a constant when making maps.
 #
 # Spots: These are gaussian in velocity space. A section like [spot1_2] means
 # the second spot for the first image.  Each spot is defined by:
@@ -275,10 +293,11 @@ vz     = 0
 fwhm   = 200.
 height = 0.1
 
-# Discs: discs are defined by a centre of symmetry in Vx-Vy, a plane of symmetry in
-# Vz, a velocity of peak intensity, the intensity at peak, and outer and inner power
-# law exponents to define how the intensity changes away from the peak. i.e. for v > vpeak,
-# the intensity scales as (v/vpeak)**eout. In the Vz direction the disc  is gaussian.
+# Discs: discs are defined by a centre of symmetry in Vx-Vy, a plane of
+# symmetry in Vz, a velocity of peak intensity, the intensity at peak, and
+# outer and inner power law exponents to define how the intensity changes away
+# from the peak. i.e. for v > vpeak, the intensity scales as
+# (v/vpeak)**eout. In the Vz direction the disc is gaussian.
 #
 # Each disc requires:
 #
