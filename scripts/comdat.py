@@ -41,9 +41,11 @@ if args.noise:
         spectra.flux = np.random.normal(spectra.flux, spectra.ferr)
 else:
     chisq = 0.
+    ndata = 0
     for cspec, dspec in zip(dtemp.data, dcopy.data):
         chisq += (((dspec.flux-cspec.flux)/dspec.ferr)**2).sum()
-    print 'Chi**2 = ',chisq
+        ndata += len(cspec.flux.flat)
+    print 'Chi**2 = ',chisq,', chi**2/N =',chisq/ndata
 
 # Write to a fits file
 dtemp.wfits(doppler.afits(args.dout))
