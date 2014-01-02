@@ -6,7 +6,7 @@ Doppler imaging in a FITS-compatible manner.
 import numpy as np
 from astropy.io import fits
 
-from core import *
+from .core import *
 
 class Spectra(object):
     """
@@ -268,6 +268,16 @@ class Data(object):
     def __repr__(self):
         return 'Data(head=' + repr(self.head) + \
             ', data=' + repr(self.data) + ')'
+
+    @property
+    def size(self):
+        """
+        Returns total number of data points
+        """
+        n = 0
+        for spectra in self.data:
+            n += spectra.flux.size
+        return n
 
 if __name__ == '__main__':
 
