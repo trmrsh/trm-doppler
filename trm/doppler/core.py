@@ -15,6 +15,9 @@ VERSION = 20131210
 # FWHM/sigma for a gaussian
 EFAC = 2.354820045
 
+# Speed of light in km/s
+CKMS = 299792.458
+
 def sameDims(arr1, arr2):
     """
     Checks that two numpy arrays have the same number of dimensions
@@ -121,4 +124,3 @@ def meshgrid(nxy, vxy, nz=1, vz=0):
 
 class DopplerError(Exception):
     pass
-
