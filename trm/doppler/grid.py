@@ -30,7 +30,7 @@ class Grid(object):
 
       vgrid  : km/s spacing of gaussians
 
-      fwhm   : km/s FWHM of gaussians
+      fratio : ratio of the gaussian FWHM to the grid spacing
 
       wave : wavelength(s) of line(s) to apply grid to
 
@@ -44,7 +44,7 @@ class Grid(object):
 
     """
 
-    def __init__(self, head, data, tzero, period, quad, vgrid, fwhm,
+    def __init__(self, head, data, tzero, period, quad, vgrid, fratio,
                  wave, gamma, scale, sfac=0.0001):
         """
         Creates a Grid object
@@ -65,7 +65,7 @@ class Grid(object):
 
         vgrid : km/s to use for spacing of the gaussians
 
-        fwhm  : km/s FWHM of gaussians
+        fratio : ratio of the gaussian FWHM to the grid spacing
 
         wave : wavelength(s) of line(s) to apply grid to
 
@@ -95,29 +95,29 @@ class Grid(object):
             self.head.add_comment(
                 'a manner that allows normal chi**2 minimisation. The gaussians are')
             self.head.add_comment(
-                'spaced by VGRID (header parameter) with FWHM = FWHM. Multiple lines can')
+                'spaced by VGRID (header parameter) with FWHM = FRATIO*VGRID. Multiple')
             self.head.add_comment(
-                'be modelled by the set of gaussians. Each line requires specification of')
+                'lines can be modelled by the set of gaussians. Each line requires')
             self.head.add_comment(
-                'a laboratory wavelength (WAVE) and systemic velocity (GAMMA). If there')
+                'specification of a laboratory wavelength (WAVE) and systemic velocity')
             self.head.add_comment(
-                'is more than one line, then each requires a scaling factor (SCALE).')
+                '(GAMMA). If there is more than one line, then each requires a scaling')
             self.head.add_comment(
-                'Other header parameters specify an ephemeris (TZERO, PERIOD, QUAD),')
-             self.head.add_comment(
-                'an overall scale factor (SFAC) designed to allow')
+                'factor (SCALE). Other header parameters specify an ephemeris (TZERO,')
+            self.head.add_comment(
+                'PERIOD, QUAD), an overall scale factor (SFAC) designed to allow')
             self.head.add_comment(
                 'image values matching a given data set to have values of order unity.')
 
         self.data = np.asarray(data)
-        if self.data !=2 or self.data.shape[0] != self.data.shape[1]:
+        if self.data.ndim != 2 or self.data.shape[0] != self.data.shape[1]:
             raise DopplerError('Grid.__init__: data is not 2D or not square')
 
         self.tzero  = tzero
         self.period = period
         self.quad   = quad
-        self.vgrid  = vfine
-        self.fwhm   = fwhm
+        self.vgrid  = vgrid
+        self.fratio = fratio
         self.sfac   = sfac
 
         # wavelengths
@@ -138,25 +138,6 @@ class Grid(object):
         if len(self.gamma) != len(self.wave):
             raise DopplerError('Image.__init__: gamma and wave must' +
                                ' match in size')
-
-        # default
-        if not isinstance(default, Default):
-            raise DopplerError('Image.__init__: default must be a Default object')
-
-        if (default.option == Default.GAUSS2D and data.ndim == 3) or \
-                (default.option == Default.GAUSS3D and data.ndim == 2):
-            raise DopplerError('Image.__init__: default option must match'
-                               ' image dimension, e.g. GAUSS2D for 2D images')
-
-        self.default = default
-
-        self.group = group
-        if self.group < 0:
-            raise DopplerError('Image.__init__: group must be an integer >= 0')
-
-        self.pgroup = pgroup
-        if self.pgroup < 0:
-            raise DopplerError('Image.__init__: pgroup must be an integer >= 0')
 
         # scale factors
         if isinstance(scale, np.ndarray):
@@ -194,7 +175,7 @@ class Grid(object):
         period = head['PERIOD']
         quad   = head['QUAD']
         vgrid  = head['VGRID']
-        fwhm   = head['FWHM']
+        fratio = head['FRATIO']
         sfac   = head['SFAC']
 
         # Remove from the header
@@ -202,7 +183,7 @@ class Grid(object):
         del head['PERIOD']
         del head['QUAD']
         del head['VGRID']
-        del head['FWHM']
+        del head['FRATIO']
         del head['SFAC']
 
         nwave  = head['NWAVE']
@@ -222,7 +203,7 @@ class Grid(object):
         data = hdul[0].data
 
         # OK, now make the map
-        return cls(head, data, tzero, period, quad, vgrid, fwhm,
+        return cls(head, data, tzero, period, quad, vgrid, fratio,
                    wave, gamma, scale, sfac)
 
     def wfits(self, fname, clobber=True):
@@ -235,7 +216,7 @@ class Grid(object):
         head['PERIOD'] = (self.period, 'Period of ephemeris')
         head['QUAD']   = (self.quad, 'Quadratic coefficient of ephemeris')
         head['VGRID']  = (self.vgrid, 'Gaussian spacing, km/s')
-        head['FWHM']   = (self.fwhm, 'FWHM of gaussians, km/s')
+        head['FRATIO'] = (self.fratio, 'ratio gaussian FWHM / spacing')
         head['NWAVE']  = (len(self.wave), 'Number of wavelengths')
         if len(self.wave) > 1:
             n = 1
@@ -258,9 +239,16 @@ class Grid(object):
             'Grid(head=' + repr(self.head) + ', data=' + repr(self.data) + \
             ', tzero=' + repr(self.tzero) + ', period=' + repr(self.period) + \
             ', quad=' + repr(self.quad) + ', vgrid=' + repr(self.vgrid) + \
-            ', fwhm=' + repr(self.fwhm) + ', wave=' + repr(self.wave) + \
+            ', fratio=' + repr(self.fratio) + ', wave=' + repr(self.wave) + \
             ', gamma=' + repr(self.gamma) + ', wave=' + repr(self.wave) + \
             ', scale=' + repr(self.scale) + ', sfac=' + repr(self.sfac) + ')'
+
+    @property
+    def size(self):
+        """
+        Returns number of elements
+        """
+        return self.data.size
 
 if __name__ == '__main__':
 
@@ -269,9 +257,8 @@ if __name__ == '__main__':
     head['OBJECT']   = ('IP Peg', 'Object name')
     head['TELESCOP'] = ('William Herschel Telescope', 'Telescope name')
 
-    # create some images
-    data = np.empty((10,10))
-    data = np.random.normal(data)
+    # create some data
+    data = np.random.normal(size=(10,10))
 
     wave  = np.array((486.2, 434.0))
     gamma = np.array((100., 100.))
@@ -281,10 +268,10 @@ if __name__ == '__main__':
     period  =  0.15
     quad    =  0.0
     vgrid   =  300.
-    fwhm    =  300.
+    fratio  =  1.0
 
     # create the Grid
-    grid = Grid(head,data,tzero,period,quad,vgrid,fwhm,wave.gamma,scale)
+    grid = Grid(head,data,tzero,period,quad,vgrid,fratio,wave,gamma,scale)
 
     # write to fits
     grid.wfits('test.fits')
