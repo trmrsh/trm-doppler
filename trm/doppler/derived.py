@@ -6,7 +6,6 @@ Routines that requires 2 or more of the other sub-packages
 from __future__ import absolute_import
 
 import numpy as np
-from scipy import linalg
 
 from .data  import *
 from .grid  import *
@@ -101,63 +100,11 @@ def genmat(grid, data, ntdiv):
     b   = np.reshape(b, (ndata,1))
     return (A,b)
 
-def pinv(grid, data, cond, ntdiv):
+def svd(grid, data, cond, ntdiv, full_output=False):
     """
-    Carries out SVD-based least-squares fit of a Grid to a Data object. See
-    'svd' for a version of this allowing multiple values for the 'cond'
-    parameter
-
-    Arguments::
-
-      grid : Grid object defining the fit model
-
-      data : the data to fit to.
-
-      cond : smallest singular value to keep, as ratio of largest
-              see numpy.linalg.pinv for more. It should be < 1
-
-      ntdiv : sub-division factor to spread the model within exposures using
-              trapezoidal averaging
-
-    Returns (coeff, chisq, cpn, rchisq) where:
-
-      coeff : square array of fit coeffients identical in form
-              to the data array of grid
-
-      chisq : the chi**2 of the fit
-
-      cpn   : chi**2 divided by the number of data points
-
-      ndata  : number of data
-    """
-    if cond >= 1:
-        raise DopplerError('trm.doppler.pinv: cond >= 1')
-
-    A, b = genmat(grid, data, ntdiv)
-
-    # compute Monroe-Penrose pseudo-inverse (Api)
-    Api = np.linalg.pinv(A,cond)
-
-    # x is the solution we want. 'fit' is fit to the data
-    # based upon this fit.
-    x   = np.dot(Api,b)
-    fit = np.dot(A,x)
-
-    # compute chi**2
-    ndata = data.size
-    chisq  = ((b-fit)**2).sum()
-    cpn    = chisq/ndata
-    nside = grid.data.shape[0]
-    return (np.reshape(x,(nside,nside)), chisq, cpn, ndata)
-
-def svd(grid, data, cond, ntdiv):
-    """
-    Carries out SVD-based least-squares fit of a Grid to a Data object. This
-    acts much like pinv but in this case 'cond' can have multiple values and
-    no grid is returned. This should be faster than calling pinv multiple
-    times as the initial svd part is only carried out once. It is very
-    comparable to pinv for just one value, perhaps even a tiny bit faster
-    although there is little in it.
+    Carries out SVD-based least-squares fit of a Grid to a Data object
+    returning chi**2 values for each of several possible values of the
+    parameter 'cond' which determines how many singular values are retained.
 
     Arguments::
 
@@ -174,22 +121,32 @@ def svd(grid, data, cond, ntdiv):
       ntdiv : sub-division factor to spread the model within exposures using
               trapezoidal averaging
 
-    Returns (chisq, sing, s) where:
+      full_output : if True, the best fit vectors are also returned, see 'x'
+                    below.
+
+    Returns (chisq, cred, sing, s, [x]) where:
 
       chisq : chi**2 of the fit for each value of 'cond'.  This will be
               an array, even if 'cond' is a single float
+
+      cred : reduced chi**2 where number of degrees of freedom = ndata -
+             number of singular values used.
 
       sing :  either the number of singular values used in each case (if
               corresponding cond < 1) or the smallest singular value used as a
               ratio of the largest (if corresponding cond >= 1)
 
       s     : the singular values.
+
+      x     : Optional list of best-fit vectors for each value of cond. Only
+              returned if the full_output flag is set.
     """
 
     # generate the matrices
     A, b = genmat(grid, data, ntdiv)
 
     # carry out full SVD. Return smallest matrices possible
+    # This is the slowest step of the program.
     u, s, v = np.linalg.svd(A,full_matrices=False)
     v = np.transpose(v)
     u = np.transpose(u)
@@ -203,6 +160,9 @@ def svd(grid, data, cond, ntdiv):
     cred  = np.empty_like(cs)
     sing  = np.empty_like(cs)
     ndata = data.size
+
+    # optional return of best-fit vectors
+    if full_output: xs = []
 
     # Go through each value of the conditioning numbers
     # calculate the Penrose-Monroe inverse, the fit coefficients
@@ -220,18 +180,19 @@ def svd(grid, data, cond, ntdiv):
 
         snew = 1/s[:nok]
 
-        # next line can be slow. snew*v is equivalent to
-        # post-multiplying v by a diagonal matrix
-        Api = np.dot(snew*v[:,:nok],u[:nok,:])
-
-        # x is the solution we want. 'fit' is the fit based upon x
-        x   = np.dot(Api,b)
+        # we now want to calculate x = v*diag(snew)*u*b
+        # We calculate this as (v*diag(snew))*(u*b)
+        # for speed.
+        x   = np.dot(snew*v[:,:nok],np.dot(u[:nok,:],b))
         fit = np.dot(A,x)
 
         # compute chi**2 and reduced chi**2
         chisq[i] = ((b-fit)**2).sum()
         cred[i]  = chisq[i] / (ndata - nok)
+        if full_output:
+            xs.append(x)
 
-    return (chisq, cred, sing, s)
-
-
+    if full_output:
+        return (chisq, cred, sing, s, xs)
+    else:
+        return (chisq, cred, sing, s)
