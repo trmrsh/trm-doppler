@@ -184,7 +184,7 @@ class Image(object):
         """
         Defines an Image. Arguments::
 
-          data : the data array, either 2D or 3D.
+         data  : the data array, either 2D or 3D.
 
          itype : Image type. Possible values PUNIT, NUNIT, PSINE, NSINE,
                  PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2.
