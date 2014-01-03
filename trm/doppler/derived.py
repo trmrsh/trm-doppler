@@ -3,9 +3,12 @@
 """
 Routines that requires 2 or more of the other sub-packages
 """
+
 from __future__ import absolute_import
 
+import sys
 import numpy as np
+from scipy import linalg
 
 from .data  import *
 from .grid  import *
@@ -13,7 +16,7 @@ from .grid  import *
 def genmat(grid, data, ntdiv):
     """
     Computes matrix A and right-hand vector b when representing
-    Doppler image problem by A x = b
+    the Doppler image problem by A x = b
 
     Returns (A,b) where::
 
@@ -94,8 +97,7 @@ def genmat(grid, data, ntdiv):
         b[noff:noff+vel.size] = (dat.flux / dat.ferr).flat
         noff += dat.flux.size
 
-    # have matrices; beat into shape, compute Monroe-Penrose
-    # pseudo-inverse (Api)
+    # have matrices. beat into shape and return
     A   = np.transpose(A)
     b   = np.reshape(b, (ndata,1))
     return (A,b)
@@ -116,10 +118,12 @@ def svd(grid, data, cond, ntdiv, full_output=False):
              values are < 1 they will be taken to indicate the smallest
              singular value to include as a ratio of the largest. If they are
              >= 1 they will be taken to indicate the number of the highest
-             singular values to keep.
+             singular values to keep (rounded to nearest integer in this case).
+             'cond' will be limited to a maximum set by the number of grid points.
 
       ntdiv : sub-division factor to spread the model within exposures using
-              trapezoidal averaging
+              trapezoidal averaging. This reduces a tendency of chi**2 oscillating
+              when plotted against period.
 
       full_output : if True, the best fit vectors are also returned, see 'x'
                     below.
@@ -132,9 +136,9 @@ def svd(grid, data, cond, ntdiv, full_output=False):
       cred : reduced chi**2 where number of degrees of freedom = ndata -
              number of singular values used.
 
-      sing :  either the number of singular values used in each case (if
-              corresponding cond < 1) or the smallest singular value used as a
-              ratio of the largest (if corresponding cond >= 1)
+      sing : either the number of singular values used in each case (if the
+             corresponding cond value is < 1) or the smallest singular value
+             used as a ratio of the largest (if corresponding cond >= 1).
 
       s     : the singular values.
 
@@ -145,9 +149,15 @@ def svd(grid, data, cond, ntdiv, full_output=False):
     # generate the matrices
     A, b = genmat(grid, data, ntdiv)
 
+    if A.shape[0] < A.shape[1]:
+        raise DopplerError('ERROR: trm.doppler.svd -- more grid points than data')
+
     # carry out full SVD. Return smallest matrices possible
-    # This is the slowest step of the program.
-    u, s, v = np.linalg.svd(A,full_matrices=False)
+    # This is the slowest step of the program. scipy version
+    # a tiny bit faster than numpy's
+    u, s, v = linalg.svd(A,full_matrices=False)
+
+    # we need the transposes later
     v = np.transpose(v)
     u = np.transpose(u)
 
@@ -155,11 +165,12 @@ def svd(grid, data, cond, ntdiv, full_output=False):
     cs = np.asarray(cond)
     if cs.ndim == 0:
         cs = np.array([float(cond),])
-    smax  = abs(s[0])
+    smax  = s[0]
     chisq = np.empty_like(cs)
     cred  = np.empty_like(cs)
     sing  = np.empty_like(cs)
     ndata = data.size
+    nside = grid.data.shape[0]
 
     # optional return of best-fit vectors
     if full_output: xs = []
@@ -172,25 +183,30 @@ def svd(grid, data, cond, ntdiv, full_output=False):
         # select the highest singular values with a method
         # determined by the value of the coniditioning number
         if c < 1.:
-            nok     = (np.abs(s) > c*smax).sum()
+            nok     = (s > c*smax).sum()
             sing[i] = nok
         else:
             nok     = min(len(s), int(round(c)))
             sing[i] = s[nok-1]/s[0]
 
+        # snew contains the inverses of the largest SVD values
         snew = 1/s[:nok]
 
         # we now want to calculate x = v*diag(snew)*u*b
         # We calculate this as (v*diag(snew))*(u*b)
         # for speed.
         x   = np.dot(snew*v[:,:nok],np.dot(u[:nok,:],b))
+
+        # the fit to the data corresponding to x ...
         fit = np.dot(A,x)
 
-        # compute chi**2 and reduced chi**2
+        # compute chi**2 and reduced chi**2, save the grid
+        # image if wanted.
         chisq[i] = ((b-fit)**2).sum()
         cred[i]  = chisq[i] / (ndata - nok)
+
         if full_output:
-            xs.append(x)
+            xs.append(np.reshape(x,(nside,nside)))
 
     if full_output:
         return (chisq, cred, sing, s, xs)
