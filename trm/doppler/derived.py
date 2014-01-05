@@ -14,31 +14,33 @@ from .data  import *
 from .grid  import *
 
 def genmat(grid, data, ntdiv):
-    """
-    Computes matrix A and right-hand vector b when representing
-    the Doppler image problem by A x = b
+    """Computes the matrix A when representing the Doppler image problem by A x = b
 
-    Returns (A,b) where::
+    Arguments::
+
+      grid : the Grid defining the fit model
+
+      data : the Data defining the data
+
+      ntdiv : sub-division factor to spread the model within exposures using
+              trapezoidal averaging. Note that only a single value can be
+              specified for technical reasons. One tends to get oscillations
+              in chi**2 for small ntdiv, so values of order 10 are
+              recommended.
+
+    Returns::
 
       A : NxM matrix where N is number of data and M is number of grid
           points
 
-      b : Nx1 vector
-
-      ntdiv : sub-division factor to spread the model within exposures using
-              trapezoidal averaging. Note that only a single value can be specified
-              for technical reasons. One tends to get oscillations in chi**2 for small
-              ntdiv, so values of order 10 are recommended.
     """
 
     ndata, ngrid = data.size, grid.size
 
     nside = grid.data.shape[0]
 
-    # Reserve space for matrix and vector (will solve
-    # Ax = b in least-squares sense)
+    # Reserve space for matrix
     A = np.zeros((ngrid, ndata))
-    b = np.empty((ndata))
 
     vgrid = grid.vgrid
 
@@ -91,20 +93,41 @@ def genmat(grid, data, ntdiv):
                 noff += vel.size
             nrow += 1
 
-    noff = 0
-    for nd in xrange(len(data.data)):
-        dat = data.data[nd]
-        b[noff:noff+vel.size] = (dat.flux / dat.ferr).flat
-        noff += dat.flux.size
-
     # have matrices. beat into shape and return
     A   = np.transpose(A)
+
+    return A
+
+def genvec(data):
+    """
+    Computes the vector b when representing the Doppler image problem by A x = b
+
+    Arguments::
+
+      data : the Data defining the data
+
+    Returns::
+
+      b : column vector dimensions Nx1 matrix where N is number of data
+
+    """
+
+    ndata = data.size
+
+    # Reserve space for vector
+    b = np.empty((ndata))
+
+    noff = 0
+    for nd, spectra in enumerate(data.data):
+        b[noff:noff+spectra.flux.size] = (spectra.flux / spectra.ferr).flat
+        noff += spectra.flux.size
+
+    # beat into shape and return
     b   = np.reshape(b, (ndata,1))
-    return (A,b)
+    return b
 
 def svd(grid, data, cond, ntdiv, full_output=False):
-    """
-    Carries out SVD-based least-squares fit of a Grid to a Data object
+    """Carries out SVD-based least-squares fit of a Grid to a Data object
     returning chi**2 values for each of several possible values of the
     parameter 'cond' which determines how many singular values are retained.
 
@@ -118,20 +141,21 @@ def svd(grid, data, cond, ntdiv, full_output=False):
              values are < 1 they will be taken to indicate the smallest
              singular value to include as a ratio of the largest. If they are
              >= 1 they will be taken to indicate the number of the highest
-             singular values to keep (rounded to nearest integer in this case).
-             'cond' will be limited to a maximum set by the number of grid points.
+             singular values to keep (rounded to nearest integer in this
+             case).  'cond' will be limited to a maximum set by the number of
+             grid points.
 
       ntdiv : sub-division factor to spread the model within exposures using
-              trapezoidal averaging. This reduces a tendency of chi**2 oscillating
-              when plotted against period.
+              trapezoidal averaging. This reduces a tendency of chi**2
+              oscillating when plotted against period.
 
       full_output : if True, the best fit vectors are also returned, see 'x'
                     below.
 
     Returns (chisq, cred, sing, s, [x]) where:
 
-      chisq : chi**2 of the fit for each value of 'cond'.  This will be
-              an array, even if 'cond' is a single float
+      chisq : chi**2 of the fit for each value of 'cond'.  This will be an
+              array, even if 'cond' is a single float
 
       cred : reduced chi**2 where number of degrees of freedom = ndata -
              number of singular values used.
@@ -142,12 +166,14 @@ def svd(grid, data, cond, ntdiv, full_output=False):
 
       s     : the singular values.
 
-      x     : Optional list of best-fit vectors for each value of cond. Only
-              returned if the full_output flag is set.
+      x : Optional list of best-fit vectors for each value of cond. Only
+          returned if the full_output flag is set.
+
     """
 
-    # generate the matrices
-    A, b = genmat(grid, data, ntdiv)
+    # generate the matrix and vector
+    A = genmat(grid, data, ntdiv)
+    b = genvec(data)
 
     if A.shape[0] < A.shape[1]:
         raise DopplerError('ERROR: trm.doppler.svd -- more grid points than data')
@@ -176,8 +202,6 @@ def svd(grid, data, cond, ntdiv, full_output=False):
     if full_output: xs = []
 
     # Go through each value of the conditioning numbers
-    # calculate the Penrose-Monroe inverse, the fit coefficients
-    # equivalent to this and finally the chi-squared.
     for i, c in enumerate(cs):
 
         # select the highest singular values with a method
