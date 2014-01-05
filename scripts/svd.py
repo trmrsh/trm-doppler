@@ -33,8 +33,8 @@ args = parser.parse_args()
 grid = doppler.Grid.rfits(doppler.afits(args.grid))
 data = doppler.Data.rfits(doppler.afits(args.data))
 
-# generate the matrices
-A, b = doppler.genmat(grid, data, args.ntdiv)
+# generate the matrix
+A = genmat(grid, data, args.ntdiv)
 
 # Carry out full SVD, returning smallest matrices possible
 u, s, v = np.linalg.svd(A,full_matrices=False)
