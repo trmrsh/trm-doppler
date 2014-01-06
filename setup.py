@@ -38,7 +38,7 @@ setup(name='trm.doppler',
       scripts=['scripts/makedata.py','scripts/makemap.py','scripts/comdat.py',
                'scripts/memit.py', 'scripts/trtest.py','scripts/comdef.py',
                'scripts/drlimit.py', 'scripts/makegrid.py', 'scripts/psearch.py',
-               'scripts/svdfit.py', 'scripts/svd.py'],
+               'scripts/svdfit.py', 'scripts/svd.py', 'scripts/precover.py'],
 
       # metadata
       author='Tom Marsh',
