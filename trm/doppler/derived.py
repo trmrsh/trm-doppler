@@ -40,7 +40,7 @@ def genmat(grid, data, ntdiv):
     nside = grid.data.shape[0]
 
     # Reserve space for matrix
-    A = np.zeros((ngrid, ndata))
+    A = np.empty((ngrid, ndata))
 
     vgrid = grid.vgrid
 
@@ -52,6 +52,7 @@ def genmat(grid, data, ntdiv):
             noff = 0
             for nd in xrange(len(data.data)):
                 dat = data.data[nd]
+                tflx = np.zeros_like(dat.flux)
                 for nt in xrange(ntdiv):
                     # compute phases
                     t = dat.time+dat.expose*(float(nt)-float(ntdiv-1)/2.)/ \
@@ -76,19 +77,26 @@ def genmat(grid, data, ntdiv):
                             s = 1.
                         else:
                             s = grid.scale[nim]
-                        vel = (CKMS/w)*(data.data[nd].wave-w)-g-voff
 
-                        # vel contains velocities of each pixel in current
-                        # dataset. Now calculate gaussian, adding in with
-                        # correct weight.
+                        # compute velocities of each pixel in current
+                        # dataset, scale by gaussian RMS, folding in the
+                        wv    = data.data[nd].wave
+                        vel   = (CKMS/w)*(wv-w)-(g-voff)
                         sigma = grid.vgrid*grid.fratio/EFAC
+                        vel  /= sigma
+
+                        # compute sub-division weight
                         if ntdiv > 1 and (nt == 0 or nt == ntdiv - 1):
                             weight = (np.sqrt(2*np.pi)*sigma*grid.sfac*s)/(2*(ntdiv-1))
                         else:
                             weight = (np.sqrt(2*np.pi)*sigma*grid.sfac*s)/max(1,ntdiv-1)
 
-                        A[nrow,noff:noff+vel.size] += weight * \
-                            (np.exp(-(vel/sigma)**2/2) / data.data[nd].ferr).flat
+                        # add into temporary array, with a restriction to < 6 sigma
+                        # to speed things a little
+                        ok = np.abs(vel) < 6.
+                        tflx[ok] += weight*np.exp(-vel[ok]**2/2.)
+
+                A[nrow,noff:noff+vel.size] = (tflx / data.data[nd].ferr).flat
 
                 noff += vel.size
             nrow += 1
