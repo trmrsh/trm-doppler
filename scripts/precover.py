@@ -119,13 +119,31 @@ for nf, f in enumerate(fs):
     u = np.transpose(u)
     smax = s[0]
 
+    # Go through each value of the conditioning numbers to compute maximum
+    # number of SVDs to use
+    mok = 0
+    for nc, c in enumerate(cond):
+
+        # select the highest singular values with a method
+        # determined by the value of the coniditioning number
+        if c < 1.0:
+            mok = max(mok, (s > c*smax).sum())
+        else:
+            mok = max(mok, min(len(s), int(round(c))))
+
+    # calculate the worst case up-front to reduce amount of
+    # repeated computation in cond loop
+    v[:,:mok] /= s[:mok]
+
     for nm in xrange(nmonte):
         # update data from buffer
         for nd, spectra in enumerate(data.data):
             spectra.flux = buffer[nd][nm]
 
-        # generate data vector
-        b = doppler.genvec(data)
+        # generate data vector and compute u*b matrix
+        # product outside cond loop
+        b  = doppler.genvec(data)
+        ub = np.dot(u[:mok,:],b)
 
         # Go through each value of the conditioning numbers
         for nc, c in enumerate(cond):
@@ -140,12 +158,12 @@ for nf, f in enumerate(fs):
             # snew contains the inverses of the largest SVD values
             snew = 1/s[:nok]
 
-            # we now want to calculate x = v*diag(snew)*u*b
-            # We calculate this as (v*diag(snew))*(u*b)
-            # for speed.
-            x = np.dot(snew*v[:,:nok],np.dot(u[:nok,:],b))
+            # calculate x = v*diag(snew)*u*b using
+            # pre-calculated bits
+            x = np.dot(v[:,:nok], ub[:nok])
 
             # the fit to the data corresponding to x ...
+            # this is probably the slowest step overall
             fit = np.dot(A,x)
 
             # store chi**2
