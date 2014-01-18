@@ -11,8 +11,10 @@ start from. config files must end in ".cfg".
 
 import argparse, os, ConfigParser
 import numpy as np
+from scipy import ndimage
 from astropy.io import fits
 from trm import doppler
+
 
 parser = argparse.ArgumentParser(description=usage, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -297,38 +299,51 @@ height = 0.1
 # symmetry in Vz, a velocity of peak intensity, the intensity at peak, and
 # outer and inner power law exponents to define how the intensity changes away
 # from the peak. i.e. for v > vpeak, the intensity scales as
-# (v/vpeak)**eout. In the Vz direction the disc is gaussian.
+# (v/vpeak)**eout. In the Vz direction the disc is gaussian. The outermost emission
+# is linearly tapered to zero between two limits, vout1 and vout2. The following
+# conditions must apply vout2 > vout1 > vpeak. Once defined the result is blurred
+# in Vx-Vy by an amount defined by fwhmxy. This smooths out the otherwise sharp 
+# changes
 #
 # Each disc requires:
 #
-# vx    : centre of symmetry in Vx
-# vy    : centre of symmetry in Vy
-# vz    : centre of symmetry in Vz (only if nz > 1)
-# fwhmz : FWHM in Vz (only if nz > 1)
-# vpeak : velocity of peak (outer disc velocity)
-# ipeak : intensity per pixel at peak
-# eout  : outer power law exponent
-# ein   : inner power law exponent
+# vx     : centre of symmetry in Vx
+# vy     : centre of symmetry in Vy
+# vz     : centre of symmetry in Vz (only if nz > 1)
+# fwhmxy : FWHM blurr to apply in Vx-Vy
+# fwhmz  : FWHM in Vz (only if nz > 1)
+# vpeak  : velocity of peak (outer disc velocity)
+# vout1  : velocity at which emission starts being linearly tapered
+# vout2  : velocity at which emission is tapered to zero.
+# ipeak  : intensity per pixel at peak
+# eout   : outer power law exponent
+# ein    : inner power law exponent
 
 [disc1]
-vx    = 0
-vy    = -50.
-vz    = 0.
-fwhmz = 50.
-vpeak = 450.
-ipeak = 1.0
-eout  = -2.5
-ein   = +3.0
+vx     = 0
+vy     = -50.
+vz     = 0.
+fwhmxy = 200.
+fwhmz  = 50.
+vpeak  = 450.
+vout1  = 2200.
+vout2  = 2400.
+ipeak  = 1.0
+eout   = -2.5
+ein    = +3.0
 
 [disc2]
-vx    = 0
-vy    = -50.
-vz    = 0.
-fwhmz = 50.
-vpeak = 550.
-ipeak = 0.5
-eout  = -2.5
-ein   = +3.0
+vx     = 0
+vy     = -50.
+vz     = 0.
+fwhmxy = 200.
+fwhmz  = 50.
+vpeak  = 550.
+vout1  = 2200.
+vout2  = 2400.
+ipeak  = 0.5
+eout   = -2.5
+ein    = +3.0
 """
     with open(doppler.acfg(args.config),'w') as fout:
         fout.write(config.format(doppler.VERSION))
@@ -486,48 +501,74 @@ else:
             # move to the next one
             nspot += 1
 
-        # look for discs to add
+        # look for discs to add. sigxy is blurring sigma
+        # in Vx-Vy in pixels; sigz is in km/s in Vz
         disc = 'disc' + str(nimage)
         if config.has_section(disc):
             vx     = config.getfloat(disc,'vx')
             vy     = config.getfloat(disc,'vy')
+            sigxy  = config.getfloat(disc,'fwhmxy')/doppler.EFAC/vxy
             if nz > 1:
                 # need to avoid overwriting the vz
                 # pixel size parameter
-                vzs  = config.getfloat(spot,'vz')
-                sigz = config.getfloat(spot,'fwhmz')/doppler.EFAC
+                vzs  = config.getfloat(disc,'vz')
+                sigz = config.getfloat(disc,'fwhmz')/doppler.EFAC
 
             vpeak  = config.getfloat(disc,'vpeak')
+            vout1  = config.getfloat(disc,'vout1')
+            vout2  = config.getfloat(disc,'vout2')
+            if vpeak <= 0. or vpeak > vout1 or vout1 >= vout2:
+                print('\nERROR: vpeak, vout1, vout2 =',vpeak,vout1,vout2)
+                print('have invalid values. Must be > 0 and monotonically')
+                print('increase.')
+                exit(1)
+
             ipeak  = config.getfloat(disc,'ipeak')
             eout   = config.getfloat(disc,'eout')
             ein    = config.getfloat(disc,'ein')
+            if ein < 0.:
+                print('\nERROR: inner exponent ein =',ein,'cannot be negative.')
+                exit(1)
 
-            if nz == 1:
-                x, y = doppler.meshgrid(nxy, vxy)
-            else:
-                vzs = config.getfloat(spot,'vz')
-                x, y, z = doppler.meshgrid(nxy, vxy, nz, vz)
+            # Compute image in 2D to start to save time as we need to blurr
+            # in Vx-Vy
+            x, y = doppler.meshgrid(nxy, vxy)
 
             # cylindrical coord radius for each point
             r = np.sqrt((x-vx)**2+(y-vy)**2)
+            twod = np.empty_like(r)
 
-            # Add low velocity disc
+            # Add disc components
             add = r <= vpeak
-            if nz == 1:
-                array[add] += ipeak*(r[add]/vpeak)**ein
-            else:
-                array[add] += ipeak*np.exp(-(z[add]-vzs)**2/(2.*sigz**2))*(r[add]/vpeak)**ein
-
-            # Add high velocity disc
+            twod[add] = ipeak*(r[add]/vpeak)**ein
             add = r > vpeak
+            twod[add] = ipeak*(r[add]/vpeak)**eout
+
+            # linear taper the outermost emission
+            taper = (r > vout1) & (r < vout2)
+            twod[taper] *= (vout2-r[taper])/(vout2-vout1)
+            twod[r >= vout2] = 0.
+
+            # blurr
+            twod = ndimage.gaussian_filter(twod, sigma=sigxy, mode='constant')
+
+            # Now add in
             if nz == 1:
-                array[add] += ipeak*(r[add]/vpeak)**eout
+                array += twod
             else:
-                array[add] += ipeak*np.exp(-(z[add]-vzs)**2/(2.*sigz**2))*(r[add]/vpeak)**eout
+                twod = np.reshape(twod, (1,twod.shape[0],twod.shape[1]))
+                vzs = config.getfloat(disc,'vz')
+                vzrange = vz*(nz-1)/2.
+                vza = np.linspace(-vzrange,vzrange,nz)
+                zw = np.exp(-((vza-vzs)/sigz)**2/2.)
+                zw = np.reshape(zw, (zw.shape[0],1,1))
+                array += zw*twod
 
         # create and store image
-        images.append(doppler.Image(array, itype, vxy, wave, gamma, default, scale, vz, group))
-        print('Created image number',nimage,', wavelength(s) =',wave,'type =',doppler.ITNAMES[itype])
+        images.append(doppler.Image(array, itype, vxy, wave, gamma,
+                                    default, scale, vz, group))
+        print('Created image number',nimage,', wavelength(s) =',wave,
+              'type =',doppler.ITNAMES[itype])
         nimage += 1
 
     # create the Map
