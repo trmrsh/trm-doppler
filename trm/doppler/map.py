@@ -5,7 +5,6 @@ Defines the classes needed to represent Doppler maps.
 import collections
 import numpy as np
 from astropy.io import fits
-
 from core import *
 
 class Default (object):
@@ -312,7 +311,7 @@ class Image(object):
           next : a number to append to the EXTNAME header extension names.
         """
 
-        # create header which contains all but the actual data array
+        # create header
         head = fits.Header()
 
         head['ITYPE']  = (ITNAMES[self.itype], 'Image type')
@@ -345,6 +344,34 @@ class Image(object):
         head['GROUP']   = (self.group, 'Image group number (0=no group)')
         head['PGROUP']  = (self.pgroup, 'Plot group number (0=no group)')
         head['EXTNAME'] = 'Image' + str(next)
+
+        # define WCS
+        head['WCSNAME'] = 'Velocity'
+        head['CRPIX1'] = (self.data.shape[-1]+1)/2.
+        head['CRPIX2'] = (self.data.shape[-2]+1)/2.
+        if self.data.ndim == 3:
+            head['CRPIX3'] = (self.data.shape[-3]+1)/2.
+
+        head['CDELT1'] = self.vxy
+        head['CDELT2'] = self.vxy
+        if self.data.ndim == 3:
+            head['CDELT3'] = self.vz
+
+        head['CTYPE1'] = 'Vx'
+        head['CUNIT2'] = 'Vy'
+        if self.data.ndim == 3:
+            head['CUNIT3'] = 'Vz'
+
+        head['CRVAL1'] = 0.
+        head['CRVAL2'] = 0.
+        if self.data.ndim == 3:
+            head['CRVAL3'] = 0.
+
+        head['CUNIT1'] = 'km/s'
+        head['CUNIT2'] = 'km/s'
+        if self.data.ndim == 3:
+            head['CUNIT3'] = 'km/s'
+
 
         # ok return with ImageHDU
         return fits.ImageHDU(self.data,head)
