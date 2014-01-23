@@ -650,16 +650,20 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                                             FFTW_ESTIMATE);
 
     // various local variables
-    size_t m, n;
-    double norm, prf, v1, v2;
-    double w1, w2, wv;
+    size_t m, n, k;
+    double norm, prf;
+    double w1, w2, wv, cosp, sinp, phase, tsub, corr, deriv;
+    double add,pxstep, pystep, pzstep, weight, itfac, sc;
+    double v1, v2, fp1, fp2;
     float gm;
+    int ifp1, ifp2;
 
     // image velocity steps xy and z
     double vxyi, vzi = 0.;
 
     // temporary image & data pointers
     float *iptr;
+    const float *dptr;
     const double *wptr;
 
     // large series of nested loops coming up.
@@ -735,18 +739,8 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 
             // loop through each spectrum of the data set
             for(int ns=0; ns<int(nspec[nd]); ns++){
-
-                // declare variables here so they are unique to each thread
-                int ifp1, ifp2;
-                size_t k, m;
-                double cosp, sinp, phase, tsub, corr, deriv, add;
-                double pxstep, pystep, pzstep;
-                double weight, itfac, wv, sc, v1, v2, fp1, fp2;
-                float gm;
-
-                // unique pointers for each thread
-                const float  *dptr = data + nwave[nd]*ns;
-                const double *wptr = wave + nwave[nd]*ns;
+                dptr = data + nwave[nd]*ns;
+                wptr = wave + nwave[nd]*ns;
 
                 // Zero the fine array
                 memset(fine, 0, NFINE*sizeof(double));
@@ -929,6 +923,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                         }
 
                     }else{
+
                         // Large nz, parallelize the z loop
                         double pzoff0  = double(nfine-1)/2. - \
                             pzstep*double(nz-1)/2.;
