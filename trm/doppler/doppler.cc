@@ -909,7 +909,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                             float *iiptr = iptr + ny*nx*iz;
 
 #pragma omp parallel for
-                            for(size_t iy=0; iy<ny; iy++){
+                            for(int iy=0; iy<int(ny); iy++){
                                 int nf;
                                 double pyoff = pyoff0 + pystep*iy;
                                 double pxoff = pyoff  - pxstep*double(nx+1)/2.;
@@ -928,7 +928,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                         double pzoff0  = double(nfine-1)/2. - \
                             pzstep*double(nz-1)/2.;
 #pragma omp parallel for
-                        for(size_t iz=0; iz<nz; iz++){
+                        for(int iz=0; iz<int(nz); iz++){
                             int nf;
                             double pxoff;
                             double pzoff = pzoff0 + pzstep*iz;
