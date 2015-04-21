@@ -1,6 +1,6 @@
 trm.doppler is a Python implementation of Doppler tomography.
 
-Pre-requisites for installation: 
+Pre-requisites for installation:
 
 C++ libraries:
 
@@ -9,3 +9,7 @@ C++ libraries:
 
 Python:
   astropy
+
+Some scripts need other packages. e.g. The volume rendering script
+vrend.py needs 's2plot'
+
