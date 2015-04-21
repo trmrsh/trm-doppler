@@ -209,7 +209,8 @@ class Image(object):
           scale : if there are multiple lines modelled by this Image (e.g. the
                   Balmer series) then you must supply scaling factors to be
                   applied for each one as well.  scale must have the same
-                  dimension as wave in this case.
+                  dimension as wave in this case. If there is only one line,
+                  it will set equal to 1 (an array) 
 
           vz : if data is 3D then you must supply a z-velocity spacing in
                km/s.
@@ -298,7 +299,7 @@ class Image(object):
             raise DopplerError('Image.__init__: scale must be an array' +
                                ' if wave is')
         else:
-            self.scale = None
+            self.scale = np.array([1.,])
 
     def toHDU(self, next):
         """
@@ -320,17 +321,13 @@ class Image(object):
         if self.data.ndim == 3:
             head['VZ']  = (self.vz, 'Vz pixel size, km/s')
         head['NWAVE']  = (len(self.wave), 'Number of wavelengths')
-        if len(self.wave) > 1:
-            n = 1
-            for w, g, s in zip(self.wave,self.gamma,self.scale):
-                head['WAVE'  + str(n)] = (w, 'Central wavelength')
-                head['GAMMA' + str(n)] = (g, 'Systemic velocity, km/s')
-                head['SCALE' + str(n)] = (s, 'Scaling factor')
-                n += 1
-        else:
-            head['WAVE1']  = (self.wave[0], 'Central wavelength')
-            head['GAMMA1'] = (self.gamma[0], 'Systemic velocity, km/s')
-
+        n = 1
+        for w, g, s in zip(self.wave,self.gamma,self.scale):
+            head['WAVE'  + str(n)] = (w, 'Central wavelength')
+            head['GAMMA' + str(n)] = (g, 'Systemic velocity, km/s')
+            head['SCALE' + str(n)] = (s, 'Scaling factor')
+            n += 1
+ 
         head['DEFAULT'] = (Default.DNAMES[self.default.option], 'Default option')
 
         head['BIAS'] = (self.default.bias, 'Bias to steer image')
@@ -404,11 +401,13 @@ class Image(object):
         nwave = head['NWAVE']
         wave  = np.empty((nwave))
         gamma = np.empty((nwave))
-        scale = np.empty((nwave)) if nwave > 1 else None
+        scale = np.empty((nwave))
         for n in xrange(nwave):
             wave[n]  = head['WAVE' + str(n+1)]
             gamma[n] = head['GAMMA' + str(n+1)]
-            if nwave > 1:
+            if nwave == 1:
+                scale[n] = 1.0
+            else:
                 scale[n] = head['SCALE' + str(n+1)]
 
         if head['DEFAULT'] == 'UNIFORM':
@@ -432,6 +431,12 @@ class Image(object):
 
         return cls(data, itype, vxy, wave, gamma, default, scale, vz,
                    group, pgroup)
+
+    def isPositive(self):
+        """
+        Returns true if all pixels in Image are positive
+        """
+        return (self.data > 0.).all()
 
     def __repr__(self):
         return \
@@ -633,6 +638,15 @@ class Map(object):
             hdul.append(image.toHDU(i+1))
         hdulist = fits.HDUList(hdul)
         hdulist.writeto(fname, clobber=clobber)
+
+    def isPositive(self):
+        """
+        Tests whether all pixels in the Map are positive
+        """
+        for i, image in enumerate(self.data):
+            if not image.isPositive():
+                return False
+        return True
 
     def __repr__(self):
         return 'Map(head=' + repr(self.head) + \
