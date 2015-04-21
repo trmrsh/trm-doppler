@@ -282,7 +282,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
             // Next loop contains the main effort, which should
             // be pretty much the same per spectrum, hence we
             // parallelise it
-#pragma omp parallel for
+            #pragma omp parallel for
             for(int ns=0; ns<int(nspec[nd]); ns++){
 
                 // declare variables here so they are unique to each thread
@@ -330,8 +330,8 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                         phase -= corr/deriv;
                     }
 
-                    cosp  = cos(2.*M_PI*phase);
-                    sinp  = sin(2.*M_PI*phase);
+                    cosp = cos(2.*M_PI*phase);
+                    sinp = sin(2.*M_PI*phase);
 
                     // Image type factor
                     switch(itype[ni])
@@ -438,7 +438,6 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 // At this point 'fine' contains the projection of the current
                 // image for the current spectrum. We now applying the blurring.
 
-
                 // Take FFT of fine array
                 fftw_execute_dft_r2c(pforw, fine, fpfft);
 
@@ -448,7 +447,6 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
                 // Take the inverse FFT
                 fftw_execute_dft_c2r(pback, fpfft, fine);
-
 
                 // We now need to add the blurred array into the spectrum once
                 // for each wavelength associated with the current image. Do
@@ -461,7 +459,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 for(k=0; k<wavel[ni].size(); k++){
                     wv = wavel[ni][k];
                     gm = gamma[ni][k];
-                    sc = wavel[ni].size() > 1 ? sfac*scale[ni][k] : sfac;
+                    sc = sfac*scale[ni][k];
 
                     // left-hand side of first pixel
                     v1 = CKMS*((wptr[0]+wptr[1])/2./wv)-gm;
@@ -492,8 +490,10 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                             if(ifp1 > 0) sum += (ifp1-0.5-fp1)*fine[ifp1-1];
                             if(ifp2 < nfine) sum += (fp2-ifp2+0.5)*fine[ifp2];
 
-                            // finally add it in with scaling
-                            dptr[m] += sc*sum;
+                            // finally add it in with scaling dividing by
+                            // Delta v / lambda representing the frequency
+                            // width
+                            dptr[m] += sc*sum/(abs(v2-v1)/wptr[m]);
                         }
 
                         // move on a click
@@ -752,7 +752,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                 for(k=0; k<wavel[ni].size(); k++){
                     wv = wavel[ni][k];
                     gm = gamma[ni][k];
-                    sc = wavel[ni].size() > 1 ? sfac*scale[ni][k] : sfac;
+                    sc = sfac*scale[ni][k];
 
                     // left-hand side of first pixel
                     v1 = CKMS*((wptr[0]+wptr[1])/2./wv)-gm;
@@ -775,7 +775,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                             ifp2 = std::min(nfine,std::max(0,int(std::floor(fp2+0.5))));
 
                             // [cf op]
-                            add = sc*dptr[m];
+                            add = sc*dptr[m]/(abs(v2-v1)/wptr[m]);
                             for(int nf=ifp1; nf<ifp2; nf++) fine[nf] += add;
 
                             // add partial pixels
@@ -1685,28 +1685,26 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 }
 
                 // scale factors, if needed
-                if(wdim[0] > 1){
-                    sarray = (PyArrayObject*)                           \
-                        PyArray_FromAny(iscale,
-                                        PyArray_DescrFromType(NPY_FLOAT),
-                                        1, 1, NPY_IN_ARRAY | NPY_FORCECAST,
-                                        NULL);
-                    if(!sarray){
-                        PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
-                                        " failed to extract array from scale");
-                        goto failed;
-                    }
-                    npy_intp *sdim = PyArray_DIMS(sarray);
-                    if(sdim[0] != wdim[0]){
-                        PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
-                                        " scale factors & wavelengths do not"
-                                        " have matching sizes");
-                        goto failed;
-                    }
-                    float *sptr = (float*) PyArray_DATA(sarray);
-                    std::vector<float> scales(sptr,sptr+PyArray_SIZE(sarray));
-                    scale.push_back(scales);
+                sarray = (PyArrayObject*)       \
+                    PyArray_FromAny(iscale,
+                                    PyArray_DescrFromType(NPY_FLOAT),
+                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST,
+                                    NULL);
+                if(!sarray){
+                    PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
+                                    " failed to extract array from scale");
+                    goto failed;
                 }
+                npy_intp *sdim = PyArray_DIMS(sarray);
+                if(sdim[0] != wdim[0]){
+                    PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
+                                    " scale factors & wavelengths do not"
+                                    " have matching sizes");
+                    goto failed;
+                }
+                float *sptr = (float*) PyArray_DATA(sarray);
+                std::vector<float> scales(sptr,sptr+PyArray_SIZE(sarray));
+                scale.push_back(scales);
 
                 // clear temporaries
                 Py_CLEAR(sarray);
@@ -2668,7 +2666,7 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     }
 
     // Allocate memory for the wavelengths
-    Dopp::wave   = new double[ndpix];
+    Dopp::wave = new double[ndpix];
 
     // read the data & errors straight into buffer
     if(!read_data(data, Mem::Gbl::st+Mem::Gbl::kb[20],
@@ -2680,10 +2678,13 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
     }
 
-    // get errors into right form
+    // get errors into right form. Need to count number
     float *eptr = Mem::Gbl::st + Mem::Gbl::kb[21];
+    size_t napix = 0;
     for(size_t np = 0; np<ndpix; np++)
-        if(eptr[np] > 0.) eptr[np] = 2./std::pow(eptr[np],2)/ndpix;
+        if(eptr[np] > 0.) napix++;
+    for(size_t np = 0; np<ndpix; np++)
+        if(eptr[np] > 0.) eptr[np] = 2./std::pow(eptr[np],2)/napix;
 
     float c, test, acc=1., cnew, s, rnew, snew, sumf;
     int mode = 10;
@@ -2719,8 +2720,8 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
                     if(Dopp::nxyz[nim].nz > 1)
                         fwhmz = Dopp::fwhmz[nim]/Dopp::vz[nim];
 
-                    gaussdef(iptr, Dopp::nxyz[nim],
-                             fwhmx, fwhmy, fwhmz, optr);
+                    gaussdef(iptr, Dopp::nxyz[nim], fwhmx, fwhmy, fwhmz, optr);
+
                     double bfac = Dopp::bias[nim];
                     for(size_t np=0; np<npix; np++)
                         optr[np] *= bfac;
@@ -2729,6 +2730,7 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
                 optr += Dopp::nxyz[nim].ntot();
             }
         }
+
         Mem::memprm(mode,20,caim,rmax,1.,acc,c,test,cnew,s,rnew,snew,sumf);
         if(test < tlim && c <= caim) break;
     }
@@ -2766,8 +2768,16 @@ static PyMethodDef DopplerMethods[] = {
     },
 
     {"memit", (PyCFunction)doppler_memit, METH_VARARGS | METH_KEYWORDS,
-     "memit(map, data, niter)\n\n"
-     "carries out niter mem iterations on map\n\n"
+     "memit(map, data, niter, caim, tlim, rmax)\n\n"
+     "carries out niter mem iterations on map given data.\n\n"
+     "Arguments::\n\n"
+     "  map   : input Map, changed on ouput\n"
+     "  data  : input Data\n"
+     "  niter : number of iterations\n"
+     "  caim  : reduced chi**2 to aim for\n"
+     "  tlim  : limit on TEST below which iterations cease\n"
+     "  rmax  : maximum change to allow\n"
+     "Arguments:\n\n"
     },
 
     {NULL, NULL, 0, NULL} /* Sentinel */
