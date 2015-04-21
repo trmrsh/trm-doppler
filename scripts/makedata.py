@@ -77,7 +77,7 @@ OBJECT = SS433
 # nspec  : number of spectra
 # error  : noise level (same for all pixels)
 # fwhm   : FWHM resolution, km/s
-# ndiv   : spectrum sub-division factor (same for all spectra)
+# nsub   : spectrum sub-division factor (same for all spectra)
 
 [dataset1]
 wave1  = 420.
@@ -89,7 +89,7 @@ time2  = 50000.1
 nspec  = 50
 error  = 0.1
 fwhm   = 150.
-ndiv   = 1
+nsub   = 1
 
 [dataset2]
 wave1  = 480.
@@ -101,7 +101,7 @@ time2  = 50000.1
 nspec  = 20
 error  = 0.1
 fwhm   = 100.
-ndiv   = 3
+nsub   = 3
 """
     with open(doppler.acfg(args.config),'w') as fout:
         fout.write(config.format(doppler.VERSION))
@@ -182,9 +182,9 @@ else:
             print('ERROR: fwhm (=' + str(fwhm) + ' must be > 0')
             exit(1)
 
-        nd = config.getint(dat,'ndiv')
-        if nd < 1:
-            print('ERROR: ndiv (=' + str(nd) + ' must be > 0')
+        nsb = config.getint(dat,'nsub')
+        if nsb < 1:
+            print('ERROR: nsub (=' + str(nsb) + ' must be > 0')
             exit(1)
 
         flux = np.zeros((nspec,nwave),dtype=np.float32)
@@ -204,10 +204,11 @@ else:
 
         etime  = (time[-1]-time[0])/(nspec-1)
         expose = np.empty_like(time); expose.fill(etime)
-        ndiv   = np.empty_like(time,dtype=np.int); ndiv.fill(nd)
+        nsub   = np.empty_like(time,dtype=np.int)
+        nsub.fill(nsb)
 
         # create & store the Spectra
-        data.append(doppler.Spectra(flux,ferr,wave,time,expose,ndiv,fwhm))
+        data.append(doppler.Spectra(flux,ferr,wave,time,expose,nsub,fwhm))
         print('Created dataset number',ndset,'with',nspec,'spectra of',nwave,'pixels each.')
         ndset += 1
 

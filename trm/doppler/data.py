@@ -46,11 +46,11 @@ class Spectra(object):
              match the first (Y) dimension of flux.
 
       expose : length of each spectrum. Same units as the times. These are
-               always needed but only used if the ndiv factors (see next) are
+               always needed but only used if the nsub factors (see next) are
                > 1. Same size as 'time'
 
 
-      ndiv : sub-division factors for accounting for finite exposures. The
+      nsub : sub-division factors for accounting for finite exposures. The
              projections are computed at a series of phases equally spaced
              from the start to the end of the exposure and trapezoidally
              averaged. Same size as 'time'.
@@ -62,7 +62,7 @@ class Spectra(object):
              transform.
     """
 
-    def __init__(self, flux, ferr, wave, time, expose, ndiv, fwhm):
+    def __init__(self, flux, ferr, wave, time, expose, nsub, fwhm):
         """
         Creates a Spectra object.
         """
@@ -95,9 +95,9 @@ class Spectra(object):
             raise DopplerError('Data.__init__: flux and expose have' +
                                ' conflicting sizes')
 
-        self.ndiv = np.asarray(ndiv, dtype=np.int32)
-        if len(ndiv.shape) != 1 or flux.shape[0] != len(ndiv):
-            raise DopplerError('Data.__init__: flux and ndiv have' +
+        self.nsub = np.asarray(nsub, dtype=np.int32)
+        if len(nsub.shape) != 1 or flux.shape[0] != len(nsub):
+            raise DopplerError('Data.__init__: flux and nsub have' +
                                ' conflicting sizes')
         self.fwhm   = fwhm
 
@@ -117,9 +117,9 @@ class Spectra(object):
         table  = hdul[3].data
         time   = table['time']
         expose = table['expose']
-        ndiv   = table['ndiv']
+        nsub   = table['nsub']
 
-        return cls(flux,ferr,wave,time,expose,ndiv,fwhm)
+        return cls(flux,ferr,wave,time,expose,nsub,fwhm)
 
     def toHDUl(self, n):
         """
@@ -154,7 +154,7 @@ class Spectra(object):
         # make a table HDU
         c1 = fits.Column(name='time', format='D', array=self.time)
         c2 = fits.Column(name='expose', format='E', array=self.expose)
-        c3 = fits.Column(name='ndiv', format='J', array=self.ndiv)
+        c3 = fits.Column(name='nsub', format='J', array=self.nsub)
         hdul.append(fits.new_table(fits.ColDefs([c1,c2,c3]),head))
 
         return hdul
@@ -163,7 +163,7 @@ class Spectra(object):
         return 'Spectra(flux=' + repr(self.flux) + \
             ', ferr=' + repr(self.ferr) + ', wave=' + repr(self.wave) + \
             ', time=' + repr(self.time) + ', expose=' + repr(self.expose) + \
-            ', ndiv=' + repr(self.ndiv) + ', fwhm=' + repr(self.fwhm) + ')'
+            ', nsub=' + repr(self.nsub) + ', fwhm=' + repr(self.fwhm) + ')'
 
 class Data(object):
     """
@@ -293,7 +293,7 @@ if __name__ == '__main__':
     wave   = np.linspace(490.,510.,shape[1])
     time   = np.linspace(50000.,50000.1,shape[0])
     expose = 0.001*np.ones_like(time)
-    ndiv   = np.ones_like(time,dtype=np.int)
+    nsub   = np.ones_like(time,dtype=np.int)
     fwhm   = 2.2
 
     # manipulate the fluxes to be vaguely interesting
@@ -303,7 +303,7 @@ if __name__ == '__main__':
                         2.*np.pi*(times-50000.)/0.1)))/1.5)**2/2.)
 
     # create the Spectra
-    spectra = Spectra(flux,ferr,wave,time,expose,ndiv,fwhm)
+    spectra = Spectra(flux,ferr,wave,time,expose,nsub,fwhm)
 
     # create the Data
     data = Data(head,spectra)
