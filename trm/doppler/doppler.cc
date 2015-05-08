@@ -92,7 +92,7 @@ enum Itype {
  *  nspec  : number of spectra, one/dataset [effectively a Y dimension], (input)
  *  time   : central times for each spectrum (input)
  *  expose : exposure lengths for each spectrum (input)
- *  ndiv   : sub-division factors for each spectrum (input)
+ *  nsub   : sub-division factors for each spectrum (input)
  *  fwhm   : FWHM resolutions, kms/s, one/dataset, (input)
  *
  * Note the arguments 'image' through to 'sfac' are associated with the
@@ -111,7 +111,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
         const std::vector<std::vector<double> >& time,
         const std::vector<std::vector<float> >& expose,
-        const std::vector<std::vector<int> >& ndiv,
+        const std::vector<std::vector<int> >& nsub,
         const std::vector<double>& fwhm){
 
     // Each image is first projected onto a finely-spaced array which is
@@ -309,7 +309,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 memset(fine, 0, NFINE*sizeof(double));
 
                 // Loop over sub-spectra to simulate finite exposures
-                int ntdiv = ndiv[nd][ns];
+                int ntdiv = nsub[nd][ns];
                 for(int nt=0; nt<ntdiv; nt++){
 
                     // Zero the sub fine array
@@ -553,7 +553,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
  *  nspec  : number of spectra, one/dataset [effectively a Y dimension], (input)
  *  time   : central times for each spectrum (input)
  *  expose : exposure lengths for each spectrum (input)
- *  ndiv   : sub-division factors for each spectrum (input)
+ *  nsub   : sub-division factors for each spectrum (input)
  *  fwhm   : FWHM resolutions, kms/s, one/dataset, (input)
  *
  * Note the arguments 'image' through to 'vfine' are associated with the
@@ -572,7 +572,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
         const std::vector<size_t>& nwave, const std::vector<size_t>& nspec,
         const std::vector<std::vector<double> >& time,
         const std::vector<std::vector<float> >& expose,
-        const std::vector<std::vector<int> >& ndiv,
+        const std::vector<std::vector<int> >& nsub,
         const std::vector<double>& fwhm){
 
     // See op for what is going on. This routine computes a transposed version
@@ -802,7 +802,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                 fftw_execute_dft_c2r(pback, fpfft, fine);
 
                 // Loop over sub-spectra to simulate finite exposures
-                int ntdiv = ndiv[nd][ns];
+                int ntdiv = nsub[nd][ns];
                 for(int nt=0; nt<ntdiv; nt++){
 
                     // Compute phase over uniformly spaced set from start to
@@ -1280,7 +1280,7 @@ namespace Dopp {
     std::vector<size_t> nwave, nspec;
     std::vector<std::vector<double> > time;
     std::vector<std::vector<float> > expose;
-    std::vector<std::vector<int> > ndiv;
+    std::vector<std::vector<int> > nsub;
     std::vector<double> fwhm;
     double *wave;
 }
@@ -1295,7 +1295,7 @@ void Mem::opus(const int j, const int k){
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype, 
        Dopp::tzero, Dopp::period, Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
-       Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
+       Dopp::time, Dopp::expose, Dopp::nsub, Dopp::fwhm);
 }
 
 /* The tropus routine needed for memsys
@@ -1308,7 +1308,7 @@ void Mem::tropus(const int k, const int j){
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype,
        Dopp::tzero, Dopp::period, Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
-       Dopp::time, Dopp::expose, Dopp::ndiv, Dopp::fwhm);
+       Dopp::time, Dopp::expose, Dopp::nsub, Dopp::fwhm);
 }
 
 /* npix_data -- returns with the number of pixels needed to allocate memory
@@ -1984,7 +1984,7 @@ npix_data(PyObject *Data, size_t& npix)
  *  time     :  vector of vector<double> of times for each spectrum (output).
  *  expose   :  vector of vector<float> of exposure times for each spectrum
  *              (output).
- *  ndiv     :  vector of vector<int> of sub-division factors for each
+ *  nsub     :  vector of vector<int> of sub-division factors for each
  *              spectrum (output).
  *  fwhm     :  vector of doubles, fwhm in pixels for each data set (output)
  *
@@ -2000,7 +2000,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
           std::vector<size_t>& nwave, std::vector<size_t>& nspec,
           std::vector<std::vector<double> >& time,
           std::vector<std::vector<float> >& expose,
-          std::vector<std::vector<int> >& ndiv,
+          std::vector<std::vector<int> >& nsub,
           std::vector<double>& fwhm)
 {
 
@@ -2022,12 +2022,12 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
     nspec.clear();
     time.clear();
     expose.clear();
-    ndiv.clear();
+    nsub.clear();
     fwhm.clear();
 
     // initialise attribute pointers
     PyObject *data=NULL, *spectra=NULL, *sflux=NULL, *sferr=NULL;
-    PyObject *swave=NULL, *stime=NULL, *sexpose=NULL, *sndiv=NULL;
+    PyObject *swave=NULL, *stime=NULL, *sexpose=NULL, *snsub=NULL;
     PyObject *sfwhm=NULL;
     PyArrayObject *farray=NULL, *earray=NULL, *warray=NULL;
     PyArrayObject *tarray=NULL, *xarray=NULL, *narray=NULL;
@@ -2067,11 +2067,11 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
             swave   = PyObject_GetAttrString(spectra, "wave");
             stime   = PyObject_GetAttrString(spectra, "time");
             sexpose = PyObject_GetAttrString(spectra, "expose");
-            sndiv   = PyObject_GetAttrString(spectra, "ndiv");
+            snsub   = PyObject_GetAttrString(spectra, "nsub");
             sfwhm   = PyObject_GetAttrString(spectra, "fwhm");
 
             // some basic checks
-            if(sflux && sferr && swave && stime && sexpose && sndiv && sfwhm){
+            if(sflux && sferr && swave && stime && sexpose && snsub && sfwhm){
 
                 // transfer fluxes)
                 farray = (PyArrayObject*) \
@@ -2170,25 +2170,25 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 std::vector<float> exposes(exptr,exptr+PyArray_SIZE(xarray));
                 expose.push_back(exposes);
 
-                // get ndiv factors
+                // get nsub factors
                 narray = (PyArrayObject*) \
-                    PyArray_FromAny(sndiv, PyArray_DescrFromType(NPY_INT),
+                    PyArray_FromAny(snsub, PyArray_DescrFromType(NPY_INT),
                                     1, 1, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
                 if(!narray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
-                                    " failed to extract array from ndiv");
+                                    " failed to extract array from nsub");
                     goto failed;
                 }
                 npy_intp *ndim = PyArray_DIMS(narray);
                 if(fdim[0] != ndim[0]){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
-                                    " flux and ndiv have incompatible"
+                                    " flux and nsub have incompatible"
                                     " dimensions");
                     goto failed;
                 }
                 int *nptr = (int*) PyArray_DATA(narray);
-                std::vector<int> ndivs(nptr,nptr+PyArray_SIZE(narray));
-                ndiv.push_back(ndivs);
+                std::vector<int> nsubs(nptr,nptr+PyArray_SIZE(narray));
+                nsub.push_back(nsubs);
 
                 // store the FWHM
                 fwhm.push_back(PyFloat_AsDouble(sfwhm));
@@ -2401,7 +2401,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<size_t> nwave, nspec;
     std::vector<std::vector<double> > time;
     std::vector<std::vector<float> > expose;
-    std::vector<std::vector<int> > ndiv;
+    std::vector<std::vector<int> > nsub;
     std::vector<double> fwhm;
     float *flux   = new float[ndpix];
     float *ferr   = new float[ndpix];
@@ -2409,7 +2409,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
 
     // read the data
     if(!read_data(data, flux, ferr, wave, nwave,
-                  nspec, time, expose, ndiv, fwhm)){
+                  nspec, time, expose, nsub, fwhm)){
         delete [] wave;
         delete [] ferr;
         delete [] flux;
@@ -2422,7 +2422,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
 
     // calculate flux equivalent to image
     op(image, nxyz, vxy, vz, wavel, gamma, scale, itype, tzero, period, quad,
-       vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
+       vfine, sfac, flux, wave, nwave, nspec, time, expose, nsub, fwhm);
 
     // restore the GIL
     Py_END_ALLOW_THREADS
@@ -2566,7 +2566,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<size_t> nwave, nspec;
     std::vector<std::vector<double> > time;
     std::vector<std::vector<float> > expose;
-    std::vector<std::vector<int> > ndiv;
+    std::vector<std::vector<int> > nsub;
     std::vector<double> fwhm;
     float *flux   = new float[ndpix];
     float *ferr   = new float[ndpix];
@@ -2574,12 +2574,12 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
 
     // read the data
     if(!read_data(data, flux, ferr, wave, nwave,
-                  nspec, time, expose, ndiv, fwhm))
+                  nspec, time, expose, nsub, fwhm))
         return NULL;
 
     // overwriting image
     tr(image, nxyz, vxy, vz, wavel, gamma, scale, itype, tzero, period, quad,
-       vfine, sfac, flux, wave, nwave, nspec, time, expose, ndiv, fwhm);
+       vfine, sfac, flux, wave, nwave, nspec, time, expose, nsub, fwhm);
 
     // write modified image back into the map
     update_map(image, map);
@@ -2672,7 +2672,7 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     if(!read_data(data, Mem::Gbl::st+Mem::Gbl::kb[20],
                   Mem::Gbl::st+Mem::Gbl::kb[21], Dopp::wave,
                   Dopp::nwave, Dopp::nspec, Dopp::time,
-                  Dopp::expose, Dopp::ndiv, Dopp::fwhm)){
+                  Dopp::expose, Dopp::nsub, Dopp::fwhm)){
         delete[] Dopp::wave;
         delete[] Mem::Gbl::st;
         return NULL;
@@ -2680,11 +2680,14 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
 
     // get errors into right form. Need to count number
     float *eptr = Mem::Gbl::st + Mem::Gbl::kb[21];
-    size_t napix = 0;
+    //    size_t napix = 0;
+    //    for(size_t np = 0; np<ndpix; np++)
+    //        if(eptr[np] > 0.) napix++;
+
+    // Divide by ndpix even when there are masked data points
+    // dividing by napix causes problems with bootstrapping.
     for(size_t np = 0; np<ndpix; np++)
-        if(eptr[np] > 0.) napix++;
-    for(size_t np = 0; np<ndpix; np++)
-        if(eptr[np] > 0.) eptr[np] = 2./std::pow(eptr[np],2)/napix;
+        if(eptr[np] > 0.) eptr[np] = 2./std::pow(eptr[np],2)/ndpix;
 
     float c, test, acc=1., cnew, s, rnew, snew, sumf;
     int mode = 10;
