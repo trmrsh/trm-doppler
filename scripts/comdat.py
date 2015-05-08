@@ -45,8 +45,8 @@ else:
     for cspec, dspec in zip(dtemp.data, dcopy.data):
         ok = dspec.ferr > 0.
         chisq += (((dspec.flux[ok]-cspec.flux[ok])/dspec.ferr[ok])**2).sum()
-        #ndata += len(cspec.flux[ok].flat)
         ndata += cspec.flux.size
+
     print 'Chi**2 = ',chisq,', chi**2/N =',chisq/ndata
 
 # Write to a fits file

@@ -51,7 +51,9 @@ if args.iscale and nscale > 1:
     # in this option we try to individually scale the images
     mtemp = copy.deepcopy(dmap)
     flux, ferr = retarr(data)
-    wgt  = 1./ferr**2
+    wgt = np.empty_like(ferr)
+    ok = ferr > 0
+    wgt[ok] = 1./ferr[ok]**2
 
     # create indices to access the scale factors
     # save old scale factors
@@ -81,9 +83,9 @@ if args.iscale and nscale > 1:
     A = np.empty((nvec,nvec))
     b = np.empty((nvec))
     for j in xrange(nvec):
-        b[j] = (wgt*dvecs[j]*flux).sum()
+        b[j] = (wgt[ok]*dvecs[j]*flux[ok]).sum()
         for i in xrange(j+1):
-            A[j][i] = (wgt*dvecs[j]*dvecs[i]).sum()
+            A[j][i] = (wgt[ok]*dvecs[j]*dvecs[i]).sum()
             A[i][j] = A[j][i]
 
     nsfacs = linalg.solve(A,b)
@@ -93,7 +95,7 @@ if args.iscale and nscale > 1:
         ocalc += osfacs[j]*dvecs[j]
         ncalc += nsfacs[j]*dvecs[j]
 
-    ndata = len(flux)
+    ndata = flux.size
     cold = (wgt*(flux-ocalc)**2).sum()/ndata
     cnew = (wgt*(flux-ncalc)**2).sum()/ndata
     print 'Chi**2/ndata (before) =',cold,' (after) =',cnew
@@ -132,7 +134,7 @@ else:
         sum0  += ((dspec.flux[ok]/dspec.ferr[ok])**2).sum()
         sum1  += ((cspec.flux[ok]/dspec.ferr[ok])*(dspec.flux[ok]/dspec.ferr[ok])).sum()
         sum2  += ((cspec.flux[ok]/dspec.ferr[ok])**2).sum()
-        ndata += len(dspec.ferr[ok])
+        ndata += dspec.ferr.size
 
     scale = sum1 / sum2
     cold = cnew = 0
