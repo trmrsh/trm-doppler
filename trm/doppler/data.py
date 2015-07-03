@@ -155,7 +155,7 @@ class Spectra(object):
         c1 = fits.Column(name='time', format='D', array=self.time)
         c2 = fits.Column(name='expose', format='E', array=self.expose)
         c3 = fits.Column(name='nsub', format='J', array=self.nsub)
-        hdul.append(fits.new_table(fits.ColDefs([c1,c2,c3]),head))
+        hdul.append(fits.BinTableHDU.from_columns([c1,c2,c3],head))
 
         return hdul
 
