@@ -1,5 +1,5 @@
 '''
-Subroutines for new the new Doppler tomography code 
+Subroutines for new Doppler tomography code 
 '''
 
 import os
