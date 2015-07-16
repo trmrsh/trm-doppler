@@ -10,8 +10,9 @@ import sys
 import numpy as np
 from scipy import linalg
 
-from .data  import *
-from .grid  import *
+from .data import *
+from .map import *
+from .grid import *
 
 def genmat(grid, data, ntdiv):
     """Computes the matrix A when representing the Doppler image problem by A x = b
