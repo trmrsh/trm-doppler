@@ -2,7 +2,7 @@
 // unedifying "boilerplate" for interfacing Python and C++, and in particular
 // to the C++ mem routines. The minimal number of routines needed to do this
 // is provided. Most manipulations of the objects are better left to
-// Python. The main routines that do the hard work in mem are op and tr that
+// Python. The main routines that do the hard work in mem are "op" and "tr" that
 // carry out the image to data projection and its transpose. Note that they
 // both include some openmp-parallelised sections so you need to take some
 // care with thread-safety if changing either of these.
@@ -217,6 +217,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         // later.
         norm = blurr[0] = 1.;
         psigma = fwhm[nd]/vfine/EFAC;
+
         for(m=1, n=NFINE-1; m<nblurr; m++, n--){
             prf = std::exp(-std::pow(m/psigma,2)/2.);
             blurr[m] = blurr[n] = prf;
@@ -282,7 +283,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
             // Next loop contains the main effort, which should
             // be pretty much the same per spectrum, hence we
             // parallelise it
-            #pragma omp parallel for
+#pragma omp parallel for
             for(int ns=0; ns<int(nspec[nd]); ns++){
 
                 // declare variables here so they are unique to each thread
@@ -493,7 +494,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                             // finally add it in with scaling dividing by
                             // Delta v / lambda representing the frequency
                             // width
-                            dptr[m] += sc*sum/(abs(v2-v1)/wptr[m]);
+                            dptr[m] += sc*sum/(fabs(v2-v1)/wptr[m]);
                         }
 
                         // move on a click
@@ -775,7 +776,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                             ifp2 = std::min(nfine,std::max(0,int(std::floor(fp2+0.5))));
 
                             // [cf op]
-                            add = sc*dptr[m]/(abs(v2-v1)/wptr[m]);
+                            add = sc*dptr[m]/(fabs(v2-v1)/wptr[m]);
                             for(int nf=ifp1; nf<ifp2; nf++) fine[nf] += add;
 
                             // add partial pixels

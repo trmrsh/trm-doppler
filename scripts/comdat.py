@@ -31,6 +31,9 @@ args = parser.parse_args()
 dmap  = doppler.Map.rfits(doppler.afits(args.map))
 dtemp = doppler.Data.rfits(doppler.afits(args.dtemp))
 
+flux = dtemp.data[0].flux
+ferr = dtemp.data[0].ferr
+
 # compute data
 dcopy = copy.deepcopy(dtemp)
 doppler.comdat(dmap, dtemp)
@@ -47,7 +50,7 @@ else:
         chisq += (((dspec.flux[ok]-cspec.flux[ok])/dspec.ferr[ok])**2).sum()
         ndata += cspec.flux.size
 
-    print 'Chi**2 = ',chisq,', chi**2/N =',chisq/ndata
+    print 'Chi**2 = ',chisq,', chi**2/N =',chisq/ndata,', N =',ndata
 
 # Write to a fits file
 dtemp.wfits(doppler.afits(args.dout))
