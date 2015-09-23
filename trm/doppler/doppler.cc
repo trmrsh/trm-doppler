@@ -494,7 +494,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                             // finally add it in with scaling dividing by
                             // Delta v / lambda representing the frequency
                             // width
-                            dptr[m] += sc*sum/(fabs(v2-v1)/wptr[m]);
+                            dptr[m] += sc*sum/(std::abs(v2-v1)/wptr[m]);
                         }
 
                         // move on a click
@@ -776,7 +776,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                             ifp2 = std::min(nfine,std::max(0,int(std::floor(fp2+0.5))));
 
                             // [cf op]
-                            add = sc*dptr[m]/(fabs(v2-v1)/wptr[m]);
+                            add = sc*dptr[m]/(std::abs(v2-v1)/wptr[m]);
                             for(int nf=ifp1; nf<ifp2; nf++) fine[nf] += add;
 
                             // add partial pixels
