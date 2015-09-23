@@ -114,7 +114,7 @@ OBJECT = SS433
 # wave2  : wavelength of second line associated with the image
 # gamma2 : systemic velocity, km/s, of second line associated with the image
 # scale2 : scale factor of second line associated with the image
-# wave3  : ... repeat as desired ...
+# wave3  : ... repeat as desired ... must be sequential, i.e. not wave1, wave2, wave4
 
 # this image is a standard one applying to 2 lines
 [image1]
@@ -236,8 +236,8 @@ gamma1  = 100.
 # The next sections are entirely optional and should normally be removed if
 # you are starting a real map since they are really aimed at creating
 # artificial test maps. They allow the addition of spots and discs to make
-# something more interesting than a constant, whereas generally once wants to
-# start from a constant when making maps.
+# something more interesting than a constant, whereas generally one starts
+# from a constant when making maps.
 #
 # Spots: These are gaussian in velocity space. A section like [spot1_2] means
 # the second spot for the first image.  Each spot is defined by:
@@ -302,7 +302,7 @@ height = 0.1
 # (v/vpeak)**eout. In the Vz direction the disc is gaussian. The outermost emission
 # is linearly tapered to zero between two limits, vout1 and vout2. The following
 # conditions must apply vout2 > vout1 > vpeak. Once defined the result is blurred
-# in Vx-Vy by an amount defined by fwhmxy. This smooths out the otherwise sharp 
+# in Vx-Vy by an amount defined by fwhmxy. This smooths out the otherwise sharp
 # changes
 #
 # Each disc requires:
