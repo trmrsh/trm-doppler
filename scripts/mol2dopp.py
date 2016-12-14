@@ -24,6 +24,8 @@ parser.add_argument('dout',  help='data output file')
 # optional
 parser.add_argument('-n', dest='nsub', type=int, default=1,
                     help='sub-division factor to use to compute exposure smearing')
+parser.add_argument('-p', dest='usephases', action='store_true',
+                    help='use phases rather than times. Use this switch when converting phase-folded data')
 
 # OK, done with arguments.
 args = parser.parse_args()
@@ -66,8 +68,13 @@ for n, spc in enumerate(mspec):
     flux[n,:] = spc.y.data
     ferr[n,:] = spc.y.errors
     wave[n,:] = spc.x.data
-    time[n]   = spc.head['HJD']-2400000.5
-    expose[n] = spc.head['Dwell']/86400.
+    if args.usephases:
+        period = spc.head['PeriodO']
+        time[n]   = spc.head['Orbital phase']
+        expose[n] = spc.head['Dwell']/86400./period
+    else:
+        time[n]   = spc.head['HJD']-2400000.5
+        expose[n] = spc.head['Dwell']/86400.
 
 # Create a "Spectra" object [this is where you could cope with
 # heterogenous data by creating more than one such object]
