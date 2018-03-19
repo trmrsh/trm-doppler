@@ -2605,6 +2605,7 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     float caim, tlim=1.e-4, rmax=0.2;
     static const char *kwlist[] = {"map", "data", "niter", "caim",
                                    "tlim", "rmax", NULL};
+
     if(!PyArg_ParseTupleAndKeywords(args, kwords, "OOif|ff", (char**)kwlist,
                                     &map, &data, &niter, &caim, &tlim, &rmax))
         return NULL;
@@ -2748,7 +2749,6 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     // cleanup
     delete[] Dopp::wave;
     delete[] Mem::Gbl::st;
-
     Py_RETURN_NONE;
 }
 
@@ -2780,8 +2780,7 @@ static PyMethodDef DopplerMethods[] = {
      "  niter : number of iterations\n"
      "  caim  : reduced chi**2 to aim for\n"
      "  tlim  : limit on TEST below which iterations cease\n"
-     "  rmax  : maximum change to allow\n"
-     "Arguments:\n\n"
+     "  rmax  : maximum change to allow\n\n"
     },
 
     {NULL, NULL, 0, NULL} /* Sentinel */
