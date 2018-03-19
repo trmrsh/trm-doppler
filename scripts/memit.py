@@ -6,9 +6,9 @@ memit carries out MEM iterations on an image.
 """
 
 import argparse
-import numpy as np
+# annoyingly seems to need the next line to prevent an immediate segfault in memit,
+# and I can't work out why
 import pylab as plt
-from astropy.io import fits
 from trm import doppler
 
 parser = argparse.ArgumentParser(description=usage)
