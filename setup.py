@@ -1,5 +1,6 @@
+import os, sys
 from distutils.core import setup, Extension
-import os, numpy
+import numpy
 
 try:
     from sdist import sdist
