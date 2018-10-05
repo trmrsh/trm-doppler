@@ -12,7 +12,7 @@ library_dirs = []
 include_dirs = []
 
 # need to direct to where includes and  libraries are
-if os.environ.has_key('TRM_SOFTWARE'):
+if 'TRM_SOFTWARE' in os.environ:
     library_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'lib'))
     include_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'include'))
 else:
