@@ -10,8 +10,7 @@ All spectra should have the same number of pixels.
 
 import argparse
 import numpy as np
-from trm import doppler, dnl
-from trm.dnl import molly
+from trm import doppler, molly
 from astropy.io import fits
 
 parser = argparse.ArgumentParser(description=usage)
@@ -35,7 +34,7 @@ if args.nsub < 0 or args.nsub > 100:
 
 # load data [for other formats other than molly,
 # this would need changing]
-mspec = dnl.molly.rmolly(args.molly)
+mspec = molly.rmolly(args.molly)
 
 # Set up 2D arrays of dimension:
 #
@@ -65,9 +64,9 @@ nsub   = args.nsub*np.ones_like(expose,dtype=int)
 # into the 2D arrays and reading the mid-exposure times
 # and lengths into the 1D arrays.
 for n, spc in enumerate(mspec):
-    flux[n,:] = spc.y.data
-    ferr[n,:] = spc.y.errors
-    wave[n,:] = spc.x.data
+    flux[n,:] = spc.f
+    ferr[n,:] = spc.fe
+    wave[n,:] = spc.wave
     if args.usephases:
         period = spc.head['PeriodO']
         time[n]   = spc.head['Orbital phase']
