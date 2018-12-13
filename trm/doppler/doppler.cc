@@ -292,7 +292,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 double cosp, sinp, phase, tsub, corr, deriv, sum;
                 double pxoff, pyoff, pzoff, pxstep, pystep, pzstep;
                 double weight, itfac, wv, sc, v1, v2, fp1, fp2;
-                float gm, rp, ip;
+                float gm;
                 const float *iiptr;
 
                 // unique pointers for each thread
@@ -444,13 +444,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
-                for(k=0; k<NFFT; k++){
-                    // fpfft[k] *= bfft[k];
-                    rp = fpfft[k][0]*bfft[k][0]-fpfft[k][1]*bfft[k][1];
-                    ip = fpfft[k][1]*bfft[k][0]+fpfft[k][0]*bfft[k][1];
-                    fpfft[k][0] = rp;
-                    fpfft[k][1] = ip;
-                }
+                for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
 
                 // Take the inverse FFT
                 fftw_execute_dft_c2r(pback, fpfft, fine);
@@ -803,14 +797,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
-                double rp, ip;
-                for(k=0; k<NFFT; k++){
-                    // fpfft[k] *= bfft[k];
-                    rp = fpfft[k][0]*bfft[k][0]-fpfft[k][1]*bfft[k][1];
-                    ip = fpfft[k][1]*bfft[k][0]+fpfft[k][0]*bfft[k][1];
-                    fpfft[k][0] = rp;
-                    fpfft[k][1] = ip;
-                }
+                for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
 
                 // Take the inverse FFT
                 fftw_execute_dft_c2r(pback, fpfft, fine);
@@ -1002,7 +989,7 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
   memcpy(output, input, nxyz.ntot()*sizeof(float));
 
   // some repeatedly used variables
-  double norm, sigma, prf, rp, ip;
+  double norm, sigma, prf;
   size_t ix, iy, iz, nstep, k, m, n;
   size_t nadd, ntot, NTOT, NFFT;
   float *iptr, *iiptr, *optr, *ooptr;
@@ -1076,13 +1063,7 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
               fftw_execute(pforw);
 
               // multiply by the FFT of the blurr
-              for(k=0; k<NFFT; k++){
-                  // afft[k] *= bfft[k];
-                  rp = afft[k][0]*bfft[k][0]-afft[k][1]*bfft[k][1];
-                  ip = afft[k][1]*bfft[k][0]+afft[k][0]*bfft[k][1];
-                  afft[k][0] = rp;
-                  afft[k][1] = ip;
-              }
+              for(k=0; k<NFFT; k++) afft[k] *= bfft[k];
 
               // inverse FFT
               fftw_execute(pback);
@@ -1169,13 +1150,7 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
               fftw_execute(pforw);
 
               // multiply by the FFT of the blurr
-              for(k=0; k<NFFT; k++){
-                  // afft[k] *= bfft[k];
-                  rp = afft[k][0]*bfft[k][0]-afft[k][1]*bfft[k][1];
-                  ip = afft[k][1]*bfft[k][0]+afft[k][0]*bfft[k][1];
-                  afft[k][0] = rp;
-                  afft[k][1] = ip;
-              }
+              for(k=0; k<NFFT; k++) afft[k] *= bfft[k];
 
               // inverse FFT
               fftw_execute(pback);
@@ -1262,13 +1237,7 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
               fftw_execute(pforw);
 
               // multiply by the FFT of the blurr
-              for(k=0; k<NFFT; k++){
-                  // afft[k] *= bfft[k];
-                  rp = afft[k][0]*bfft[k][0]-afft[k][1]*bfft[k][1];
-                  ip = afft[k][1]*bfft[k][0]+afft[k][0]*bfft[k][1];
-                  afft[k][0] = rp;
-                  afft[k][1] = ip;
-              }
+              for(k=0; k<NFFT; k++) afft[k] *= bfft[k];
 
               // inverse FFT
               fftw_execute(pback);
@@ -1630,7 +1599,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 }
                 // store the image type
                 DefOpt option;
-                switch(PyInt_AsLong(doption))
+                switch(PyLong_AsLong(doption))
                 {
                 case 1:
                     option = UNIFORM;
@@ -1679,7 +1648,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 if(nddim == 3) vz.push_back(PyFloat_AsDouble(ivz));
 
                 // store the image type
-                switch(PyInt_AsLong(iitype))
+                switch(PyLong_AsLong(iitype))
                 {
                 case 1:
                     itype.push_back(PUNIT);
@@ -2814,9 +2783,35 @@ static PyMethodDef DopplerMethods[] = {
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
+// New python3 stuff
+struct module_state {
+    PyObject *error;
+};
+
+static int myextension_traverse(PyObject *m, visitproc visit, void *arg) {
+    Py_VISIT(((struct module_state*)PyModule_GetState(m))->error);
+    return 0;
+}
+
+static int myextension_clear(PyObject *m) {
+    Py_CLEAR(((struct module_state*)PyModule_GetState(m))->error);
+    return 0;
+}
+
+static struct PyModuleDef moduledef = {
+        PyModuleDef_HEAD_INIT,
+        "_doppler",
+        NULL,
+        sizeof(struct module_state),
+        DopplerMethods,
+        NULL,
+        myextension_traverse,
+        myextension_clear,
+        NULL
+};
+
 PyMODINIT_FUNC
 init_doppler(void)
 {
-    (void) Py_InitModule("_doppler", DopplerMethods);
-    import_array();
+    return PyModule_Create(&moduledef);
 }

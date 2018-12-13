@@ -197,7 +197,7 @@ class Data(object):
                                        'of data is not a Spectra.')
 
             self.data = data
-        except TypeError, err:
+        except TypeError as err:
             if not isinstance(data, Spectra):
                 raise DopplerError('Data.__init__: data must be a' +
                                    ' Spectra or a list of Spectra')

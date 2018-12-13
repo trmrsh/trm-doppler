@@ -280,4 +280,4 @@ if __name__ == '__main__':
     g = Grid.rfits('test.fits')
 
     # print to screen
-    print g
+    print(g)

@@ -576,7 +576,7 @@ class Map(object):
                                        ' of map is not an Image.')
 
             self.data = data
-        except TypeError, err:
+        except TypeError as err:
             if not isinstance(data, Image):
                 raise DopplerError('Map.__init__: data must be an' +
                                    ' Image or a list of Images')
@@ -688,7 +688,7 @@ if __name__ == '__main__':
     quad    =  0.0
     vfine   =  10.
 
-    print 'image2.default =',image2.default
+    print('image2.default =',image2.default)
 
     # create the Map
     map = Map(head,[image1,image2],tzero,period,quad,vfine)
@@ -700,4 +700,4 @@ if __name__ == '__main__':
     m = Map.rfits('test.fits')
 
     # print to screen
-    print m
+    print(m)
