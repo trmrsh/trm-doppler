@@ -2,11 +2,10 @@ import os, sys
 from distutils.core import setup, Extension
 import numpy
 
-try:
-    from sdist import sdist
-    cmdclass = {'sdist': sdist}
-except:
-    cmdclass = {}
+# Ensure C99 compilation to avoid a problem with the fftw_complex
+# that can occur otherwise. 'c99' is apparently the standard way to
+# do this (but is basically gcc with a flag)
+#os.environ['CC'] = 'c99'
 
 library_dirs = []
 include_dirs = []
@@ -21,19 +20,20 @@ else:
 
 include_dirs.append(numpy.get_include())
 
-doppler = Extension('trm.doppler._doppler',
-                    define_macros   = [('MAJOR_VERSION', '0'),
-                                       ('MINOR_VERSION', '1')],
-                    undef_macros    = ['USE_NUMARRAY'],
-                    include_dirs    = include_dirs,
-                    library_dirs    = library_dirs,
-                    runtime_library_dirs = library_dirs,
-                    libraries       = ['mem', 'fftw3', 'gomp', 'm'],
-                    extra_compile_args=['-fopenmp'],
-                    sources         = [os.path.join('trm', 'doppler', 'doppler.cc')])
+doppler = Extension(
+    'trm.doppler._doppler',
+    define_macros = [('MAJOR_VERSION', '1'),('MINOR_VERSION', '0')],
+    undef_macros = ['USE_NUMARRAY'],
+    include_dirs = include_dirs,
+    library_dirs = library_dirs,
+    runtime_library_dirs = library_dirs,
+    libraries = ['mem', 'fftw3', 'gomp', 'm'],
+    extra_compile_args=['-fopenmp'],
+    sources = [os.path.join('trm', 'doppler', 'doppler.cc')]
+)
 
 setup(name='trm.doppler',
-      version='0.9',
+      version='1.0',
       packages = ['trm', 'trm.doppler'],
       ext_modules=[doppler],
       scripts=['scripts/comdat.py',
@@ -62,7 +62,6 @@ setup(name='trm.doppler',
 doppler is an implementation of Doppler tomography package. It has many advantages over the
 former set of F77 routines.
 """,
-      cmdclass = cmdclass
 
       )
 

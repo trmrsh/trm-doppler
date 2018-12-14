@@ -11,5 +11,9 @@ Python:
   astropy
 
 Some scripts need other packages. e.g. The volume rendering script
-vrend.py needs 's2plot'
+vrend.py needs 's2plot' (but I intend to explore other options for
+3D visualiation so don't reply on this).
+
+This is the Python3 version. I am making no attempt to be backwards
+compatible with Python2.
 

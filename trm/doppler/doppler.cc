@@ -1,11 +1,12 @@
-// The hard work of Doppler imaging is done by the code here. Much of code is
-// unedifying "boilerplate" for interfacing Python and C++, and in particular
-// to the C++ mem routines. The minimal number of routines needed to do this
-// is provided. Most manipulations of the objects are better left to
-// Python. The main routines that do the hard work in mem are "op" and "tr" that
-// carry out the image to data projection and its transpose. Note that they
-// both include some openmp-parallelised sections so you need to take some
-// care with thread-safety if changing either of these.
+// The hard work of Doppler imaging is done by the code here. Much of
+// code is unedifying "boilerplate" for interfacing Python and C++,
+// and in particular to the C++ mem routines. The minimal number of
+// routines needed to do this is provided. Most manipulations of the
+// objects are better left to Python. The main routines that do the
+// hard work in mem are "op" and "tr" that carry out the image to data
+// projection and its transpose. Note that they both include some
+// openmp-parallelised sections so you need to take some care with
+// thread-safety if changing either of these.
 //
 // The data, structure and routines in this file are as follows::
 //
@@ -30,8 +31,8 @@
 #include <vector>
 //#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include "numpy/arrayobject.h"
-#include <cmath>
-#include <complex.h>
+//#include <cmath>
+//#include <complex.h>
 #include <fftw3.h>
 #include "trm/memsys.h"
 
