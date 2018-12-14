@@ -5,7 +5,6 @@ Doppler tomography package
 
 This is an implementation of Doppler tomography in Python.
 """
-from __future__ import absolute_import
 
 import numpy as np
 from scipy import linalg

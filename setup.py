@@ -1,11 +1,14 @@
 import os, sys
-from distutils.core import setup, Extension
+from setuptools import setup, find_packages
+from setuptools.extension import Extension
+from setuptools.command.build_ext import build_ext
 import numpy
 
-# Ensure C99 compilation to avoid a problem with the fftw_complex
-# that can occur otherwise. 'c99' is apparently the standard way to
-# do this (but is basically gcc with a flag)
-#os.environ['CC'] = 'c99'
+# get round irritating compiler warning
+class BuildExt(build_ext):
+    def build_extensions(self):
+        self.compiler.compiler_so.remove('-Wstrict-prototypes')
+        super(BuildExt, self).build_extensions()
 
 library_dirs = []
 include_dirs = []
@@ -36,22 +39,26 @@ setup(name='trm.doppler',
       version='1.0',
       packages = ['trm', 'trm.doppler'],
       ext_modules=[doppler],
-      scripts=['scripts/comdat.py',
-               'scripts/comdef.py',
-               'scripts/drlimit.py',
-               'scripts/makedata.py',
-               'scripts/makegrid.py',
-               'scripts/makemap.py',
-               'scripts/memit.py',
-               'scripts/mol2dopp.py',
-               'scripts/mspruit.py',
-               'scripts/optscl.py',
-               'scripts/precover.py',
-               'scripts/psearch.py',
-               'scripts/svdfit.py',
-               'scripts/svd.py',
-               'scripts/trtest.py',
-               'scripts/vrend.py'],
+      entry_points={
+          'console_scripts' : [
+              'comdat=trm.doppler.scripts.comdat:comdat',
+#               'scripts/comdef.py',
+#               'scripts/drlimit.py',
+#               'scripts/makedata.py',
+#               'scripts/makegrid.py',
+#               'scripts/makemap.py',
+#               'scripts/memit.py',
+#               'scripts/mol2dopp.py',
+#               'scripts/mspruit.py',
+#               'scripts/optscl.py',
+#               'scripts/precover.py',
+#               'scripts/psearch.py',
+#               'scripts/svdfit.py',
+#               'scripts/svd.py',
+#               'scripts/trtest.py',
+#               'scripts/vrend.py'
+          ],
+      },
 
       # metadata
       author='Tom Marsh',
@@ -62,6 +69,7 @@ setup(name='trm.doppler',
 doppler is an implementation of Doppler tomography package. It has many advantages over the
 former set of F77 routines.
 """,
+      cmdclass={'build_ext': BuildExt}
 
       )
 

@@ -29,12 +29,11 @@
 #include <Python.h>
 #include <iostream>
 #include <vector>
-//#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#include "numpy/arrayobject.h"
-//#include <cmath>
-//#include <complex.h>
+#include <complex>
 #include <fftw3.h>
 #include "trm/memsys.h"
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#include "numpy/arrayobject.h"
 
 // Speed of light in km/s
 const double CKMS = 299792.458;
@@ -63,7 +62,13 @@ enum Itype {
     PSINE2   =  7,
     NSINE2   =  8,
     PCOSINE2 =  9,
-    NCOSINE2 = 10};
+    NCOSINE2 = 10
+};
+
+// Typedef and define to interface between C++'s native complex type and 
+// fftw_complex
+typedef std::complex<double> complex_fft;
+#define RECAST reinterpret_cast<fftw_complex*>
 
 /* op computes the image to data transform that is the heart of Doppler
  * tomography. i.e it projects the image(s) to compute data corresponding to
@@ -174,23 +179,20 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
     // place, but the amount of memory required here is small, so it is better
     // to have an explicit dedicated array
     const size_t NFFT = NFINE/2+1;
-    fftw_complex *bfft = fftw_alloc_complex(NFFT);
+    complex_fft *bfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
     // this for the FFT of the fine pixel array
-    fftw_complex *fpfft = fftw_alloc_complex(NFFT);
+    complex_fft *fpfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
     // Grab space for fine arrays
-    double *fine  = fftw_alloc_real(NFINE);
+    double *fine = fftw_alloc_real(NFINE);
 
     // create plans for blurr, fine pixel and final inverse FFTs
     // must be here not inside parallelised loop because they
     // are not thread-safe
-    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft,
-                                            FFTW_ESTIMATE);
-    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft,
-                                            FFTW_ESTIMATE);
-    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine,
-                                            FFTW_ESTIMATE);
+    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, RECAST(bfft), FFTW_ESTIMATE);
+    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, RECAST(fpfft), FFTW_ESTIMATE);
+    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE,  RECAST(fpfft), fine, FFTW_ESTIMATE);
 
     // various local variables
     size_t m, n;
@@ -297,15 +299,15 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 const float *iiptr;
 
                 // unique pointers for each thread
-                float        *dptr = data + nwave[nd]*ns;
+                float *dptr = data + nwave[nd]*ns;
                 const double *wptr = wave + nwave[nd]*ns;
 
                 // this for the FFT of the fine pixel array
-                fftw_complex *fpfft = fftw_alloc_complex(NFFT);
+                complex_fft *fpffti = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
                 // Grab space for fine arrays
-                double *fine  = fftw_alloc_real(NFINE);
-                double *tfine = new double[nfine];
+                double *fine = fftw_alloc_real(NFINE);
+                double *tfine = fftw_alloc_real(nfine);
 
                 // Zero the fine array
                 memset(fine, 0, NFINE*sizeof(double));
@@ -314,7 +316,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 int ntdiv = nsub[nd][ns];
                 for(int nt=0; nt<ntdiv; nt++){
 
-                    // Zero the sub fine array
+                    // Zero the fine sub array
                     memset(tfine, 0, nfine*sizeof(double));
 
                     // Compute phase over uniformly spaced set from start to
@@ -441,14 +443,14 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                 // image for the current spectrum. We now applying the blurring.
 
                 // Take FFT of fine array
-                fftw_execute_dft_r2c(pforw, fine, fpfft);
+                fftw_execute_dft_r2c(pforw, fine, RECAST(fpffti));
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
-                for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
+                for(k=0; k<NFFT; k++) fpffti[k] *= bfft[k];
 
                 // Take the inverse FFT
-                fftw_execute_dft_c2r(pback, fpfft, fine);
+                fftw_execute_dft_c2r(pback, RECAST(fpffti), fine);
 
                 // We now need to add the blurred array into the spectrum once
                 // for each wavelength associated with the current image. Do
@@ -505,8 +507,8 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
 
                 // clear memory.
                 fftw_free(fine);
-                delete[] tfine;
-                fftw_free(fpfft);
+                fftw_free(tfine);
+                fftw_free(fpffti);
 
             } // end of parallel section
 
@@ -519,14 +521,15 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
         wave += nspec[nd]*nwave[nd];
     }
 
-    // cleanup in reverse order of allocation
+    // cleanup in reverse order of allocation. Have to take
+    // care according to how memeory was allocated.
     fftw_destroy_plan(pback);
     fftw_destroy_plan(pforw);
     fftw_destroy_plan(pblurr);
     fftw_free(fine);
     fftw_free(fpfft);
     fftw_free(bfft);
-    delete[] blurr;
+    fftw_free(blurr);
 }
 
 /* 'tr' is the counterpart of op calculating its transpose.
@@ -633,23 +636,20 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     // place, but the amount of memory required here is small, so it is better
     // to have an explicit dedicated array
     const size_t NFFT = NFINE/2+1;
-    fftw_complex *bfft = fftw_alloc_complex(NFFT);
+    complex_fft *bfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
     // this for the FFT of the fine pixel array
-    fftw_complex *fpfft = fftw_alloc_complex(NFFT);
+    complex_fft *fpfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
     // Grab space for fine arrays
     double *fine  = fftw_alloc_real(NFINE);
-    double *tfine = new double[nfine];
+    double *tfine = fftw_alloc_real(nfine);
 
     // create plans for the blurring, fine pixel and final inverse FFTs
     // (must be called outside multi-threaded parts)
-    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, bfft,
-                                            FFTW_ESTIMATE);
-    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, fpfft,
-                                            FFTW_ESTIMATE);
-    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, fpfft, fine,
-                                            FFTW_ESTIMATE);
+    fftw_plan pblurr = fftw_plan_dft_r2c_1d(NFINE, blurr, RECAST(bfft), FFTW_ESTIMATE);
+    fftw_plan pforw  = fftw_plan_dft_r2c_1d(NFINE, fine, RECAST(fpfft), FFTW_ESTIMATE);
+    fftw_plan pback  = fftw_plan_dft_c2r_1d(NFINE, RECAST(fpfft), fine, FFTW_ESTIMATE);
 
     // various local variables
     size_t m, n, k;
@@ -781,7 +781,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                             for(int nf=ifp1; nf<ifp2; nf++) fine[nf] += add;
 
                             // add partial pixels
-                            if(ifp1 > 0) fine[ifp1-1]   += (ifp1-0.5-fp1)*add;
+                            if(ifp1 > 0) fine[ifp1-1] += (ifp1-0.5-fp1)*add;
                             if(ifp2 < nfine) fine[ifp2] += (fp2-ifp2+0.5)*add;
 
                         }
@@ -794,14 +794,14 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                 // next section, blurring of fine array, stays same cf op
 
                 // Take FFT of fine array
-                fftw_execute_dft_r2c(pforw, fine, fpfft);
+                fftw_execute_dft_r2c(pforw, fine, RECAST(fpfft));
 
                 // multiply the FFT by the FFT of the blurring (in effect a
                 // convolution)
                 for(k=0; k<NFFT; k++) fpfft[k] *= bfft[k];
 
                 // Take the inverse FFT
-                fftw_execute_dft_c2r(pback, fpfft, fine);
+                fftw_execute_dft_c2r(pback, RECAST(fpfft), fine);
 
                 // Loop over sub-spectra to simulate finite exposures
                 int ntdiv = nsub[nd][ns];
@@ -964,7 +964,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
     fftw_destroy_plan(pback);
     fftw_destroy_plan(pforw);
     fftw_destroy_plan(pblurr);
-    delete[] tfine;
+    fftw_free(tfine);
     fftw_free(fine);
     fftw_free(fpfft);
     fftw_free(bfft);
@@ -995,7 +995,7 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
   size_t nadd, ntot, NTOT, NFFT;
   float *iptr, *iiptr, *optr, *ooptr;
   double *array, *blurr;
-  fftw_complex *bfft, *afft;
+  complex_fft *bfft, *afft;
   fftw_plan pblurr, pforw, pback;
 
   // Blurr in X
@@ -1008,21 +1008,21 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       NFFT = NTOT/2 + 1;
 
       // input workspace
-      array = new double[NTOT];
+      array = fftw_alloc_real(NTOT);
 
       // blurring array
-      blurr = new double[NTOT];
+      blurr = fftw_alloc_real(NTOT);
 
       // FFT of blurring array
-      bfft = fftw_alloc_complex(NFFT);
+      bfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
       // FFT of the array to be blurred
-      afft = fftw_alloc_complex(NFFT);
+      afft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
       // create FFT plans for the blurr, work and final inverse
-      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, FFTW_ESTIMATE);
-      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, afft, FFTW_ESTIMATE);
-      pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, FFTW_ESTIMATE);
+      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, RECAST(bfft), FFTW_ESTIMATE);
+      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, RECAST(afft), FFTW_ESTIMATE);
+      pback = fftw_plan_dft_c2r_1d(NTOT, RECAST(afft), array, FFTW_ESTIMATE);
 
       // all memory allocated. Get on with it.
       norm  = blurr[0] = 1.;
@@ -1081,8 +1081,8 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       fftw_destroy_plan(pblurr);
       fftw_free(afft);
       fftw_free(bfft);
-      delete[] blurr;
-      delete[] array;
+      fftw_free(blurr);
+      fftw_free(array);
   }
 
   // Blurr in Y
@@ -1095,21 +1095,21 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       NFFT = NTOT/2 + 1;
 
       // input workspace
-      array = new double[NTOT];
+      array = fftw_alloc_real(NTOT);
 
       // blurring array
-      blurr = new double[NTOT];
+      blurr = fftw_alloc_real(NTOT);
 
       // FFT of blurring array
-      bfft = fftw_alloc_complex(NFFT);
+      bfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
       // FFT of the array to be blurred
-      afft = fftw_alloc_complex(NFFT);
+      afft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
       // create FFT plans for the blurr, work and final inverse
-      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, FFTW_ESTIMATE);
-      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, afft, FFTW_ESTIMATE);
-      pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, FFTW_ESTIMATE);
+      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, RECAST(bfft), FFTW_ESTIMATE);
+      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, RECAST(afft), FFTW_ESTIMATE);
+      pback = fftw_plan_dft_c2r_1d(NTOT, RECAST(afft), array, FFTW_ESTIMATE);
 
       // all memory allocated, get on with it
       norm  = blurr[0] = 1.;
@@ -1169,8 +1169,8 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       fftw_destroy_plan(pblurr);
       fftw_free(afft);
       fftw_free(bfft);
-      delete[] blurr;
-      delete[] array;
+      fftw_free(blurr);
+      fftw_free(array);
   }
 
   // Blurr in Z
@@ -1183,21 +1183,21 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       NFFT = NTOT/2 + 1;
 
       // input workspace
-      array = new double[NTOT];
+      array = fftw_alloc_real(NTOT);
 
       // blurring array
-      blurr = new double[NTOT];
+      blurr = fftw_alloc_real(NTOT);
 
       // FFT of blurring array
-      bfft = fftw_alloc_complex(NFFT);
+      bfft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
       // FFT of the array to be blurred
-      afft = fftw_alloc_complex(NFFT);
+      afft = (complex_fft *)fftw_malloc(sizeof(complex_fft)*NFFT);
 
       // create FFT plans for the blurr, work and final inverse
-      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, bfft, FFTW_ESTIMATE);
-      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, afft, FFTW_ESTIMATE);
-      pback = fftw_plan_dft_c2r_1d(NTOT, afft, array, FFTW_ESTIMATE);
+      pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, RECAST(bfft), FFTW_ESTIMATE);
+      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, RECAST(afft), FFTW_ESTIMATE);
+      pback = fftw_plan_dft_c2r_1d(NTOT, RECAST(afft), array, FFTW_ESTIMATE);
 
       // all memory allocated, get on with it
       norm  = blurr[0] = 1.;
@@ -1256,8 +1256,8 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       fftw_destroy_plan(pblurr);
       fftw_free(afft);
       fftw_free(bfft);
-      delete[] blurr;
-      delete[] array;
+      fftw_free(blurr);
+      fftw_free(array);
   }
 }
 
@@ -1291,7 +1291,7 @@ void Mem::opus(const int j, const int k){
     std::cerr << "    OPUS " << j+1 << " ---> " << k+1 << std::endl;
 
     op(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
-       Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype, 
+       Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype,
        Dopp::tzero, Dopp::period, Dopp::quad, Dopp::vfine, Dopp::sfac,
        Mem::Gbl::st+Mem::Gbl::kb[k], Dopp::wave, Dopp::nwave, Dopp::nspec,
        Dopp::time, Dopp::expose, Dopp::nsub, Dopp::fwhm);
@@ -1337,7 +1337,8 @@ npix_map(PyObject *Map, size_t& npix)
     npix = 0;
 
     // initialise attribute pointers
-    PyObject *data=NULL, *image=NULL, *idata=NULL;
+    PyObject *data=NULL, *image=NULL;
+    PyArrayObject* idata=NULL;
 
     // get the data attribute.
     data  = PyObject_GetAttrString(Map, "data");
@@ -1370,7 +1371,7 @@ npix_map(PyObject *Map, size_t& npix)
             }
 
             // get data attribute
-            idata = PyObject_GetAttrString(image, "data");
+            idata = (PyArrayObject*) PyObject_GetAttrString(image, "data");
 
             if(idata && PyArray_Check(idata) &&
                (PyArray_NDIM(idata) == 2 || PyArray_NDIM(idata) == 3)){
@@ -1385,6 +1386,8 @@ npix_map(PyObject *Map, size_t& npix)
                 PyErr_SetString(PyExc_ValueError, "doppler.npix_map:"
                                 " failed to locate Image.data attribute or"
                                 " it was not an array or had wrong dimension");
+                Py_XDECREF(idata);
+
                 goto failed;
             }
         }
@@ -1395,9 +1398,9 @@ npix_map(PyObject *Map, size_t& npix)
 
  failed:
 
-    Py_XDECREF(idata);
-    Py_XDECREF(image);
-    Py_XDECREF(data);
+    Py_CLEAR(idata);
+    Py_CLEAR(image);
+    Py_CLEAR(data);
 
     return status;
 }
@@ -1538,7 +1541,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
 
                 darray = (PyArrayObject*)                               \
                     PyArray_FromAny(idata, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 3, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    2, 3, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!darray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
                                     " failed to extract array from data");
@@ -1560,7 +1563,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 // copy over wavelengths
                 warray = (PyArrayObject*) \
                     PyArray_FromAny(iwave, PyArray_DescrFromType(NPY_DOUBLE),
-                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    1, 1, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!warray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
                                     " failed to extract array from wave");
@@ -1574,7 +1577,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 // copy over systemic velocities
                 garray = (PyArrayObject*) \
                     PyArray_FromAny(igamma, PyArray_DescrFromType(NPY_FLOAT),
-                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    1, 1, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!garray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
                                     " failed to extract array from gamma");
@@ -1687,7 +1690,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 sarray = (PyArrayObject*)       \
                     PyArray_FromAny(iscale,
                                     PyArray_DescrFromType(NPY_FLOAT),
-                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST,
+                                    1, 1, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST,
                                     NULL);
                 if(!sarray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
@@ -1837,7 +1840,7 @@ update_map(float const* images, PyObject* map)
                 // get images in form that allows easy modification
                 array = (PyArrayObject*) \
                     PyArray_FromAny(idata, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 3, NPY_INOUT_ARRAY | NPY_FORCECAST,
+                                    2, 3, NPY_ARRAY_INOUT_ARRAY | NPY_ARRAY_FORCECAST,
                                     NULL);
                 if(!array){
                     PyErr_SetString(PyExc_ValueError, "doppler.update_map:"
@@ -1899,7 +1902,8 @@ npix_data(PyObject *Data, size_t& npix)
     npix = 0;
 
     // initialise attribute pointers
-    PyObject *data=NULL, *spectra=NULL, *sflux=NULL;
+    PyObject *data=NULL, *spectra=NULL;
+    PyArrayObject *sflux=NULL;
 
     // get the data attribute.
     data  = PyObject_GetAttrString(Data, "data");
@@ -1931,7 +1935,7 @@ npix_data(PyObject *Data, size_t& npix)
             }
 
             // get flux attribute
-            sflux   = PyObject_GetAttrString(spectra, "flux");
+            sflux   = (PyArrayObject*) PyObject_GetAttrString(spectra, "flux");
 
             if(sflux && PyArray_Check(sflux) && PyArray_NDIM(sflux) == 2){
 
@@ -1973,7 +1977,7 @@ npix_data(PyObject *Data, size_t& npix)
  *  flux     :  pointer to a single 1D array where the flux data will be
  *              stored (output). Note this may involve multiple different
  *              data sets which are written sequentially. This must have
- *              enough space to hold the data of course.
+ *              enough space to hold the data of course. 
  *  ferr     :  pointer to 1D array where flux errors will be stored (output)
  *              Same remarks about memory for flux apply to ferr.
  *  wave     :  pointer to 1D array where wavelengths will be stored (output)
@@ -2075,7 +2079,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 // transfer fluxes)
                 farray = (PyArrayObject*) \
                     PyArray_FromAny(sflux, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 2, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    2, 2, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!farray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
                                     " failed to extract array from flux");
@@ -2090,7 +2094,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 // transfer flux errors
                 earray = (PyArrayObject*) \
                     PyArray_FromAny(sferr, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 2, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    2, 2, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!earray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
                                     " failed to extract array from ferr");
@@ -2111,7 +2115,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 // transfer wavelengths
                 warray = (PyArrayObject*) \
                     PyArray_FromAny(swave, PyArray_DescrFromType(NPY_DOUBLE),
-                                    2, 2, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    2, 2, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!warray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
                                     " failed to extract array from wave");
@@ -2132,7 +2136,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 // get times
                 tarray = (PyArrayObject*) \
                     PyArray_FromAny(stime, PyArray_DescrFromType(NPY_DOUBLE),
-                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    1, 1, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!tarray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
                                     " failed to extract array from time");
@@ -2152,7 +2156,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 // get exposures
                 xarray = (PyArrayObject*) \
                     PyArray_FromAny(sexpose, PyArray_DescrFromType(NPY_FLOAT),
-                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    1, 1, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!xarray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
                                     " failed to extract array from expose");
@@ -2172,7 +2176,7 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
                 // get nsub factors
                 narray = (PyArrayObject*) \
                     PyArray_FromAny(snsub, PyArray_DescrFromType(NPY_INT),
-                                    1, 1, NPY_IN_ARRAY | NPY_FORCECAST, NULL);
+                                    1, 1, NPY_ARRAY_IN_ARRAY | NPY_ARRAY_FORCECAST, NULL);
                 if(!narray){
                     PyErr_SetString(PyExc_ValueError, "doppler.read_data:"
                                     " failed to extract array from nsub");
@@ -2235,11 +2239,6 @@ read_data(PyObject *Data, float* flux, float* ferr, double* wave,
     Py_XDECREF(spectra);
     Py_XDECREF(data);
 
-    if(!status){
-        delete[] flux;
-        delete[] ferr;
-        delete[] wave;
-    }
     return status;
 }
 
@@ -2316,7 +2315,7 @@ update_data(float const* flux, PyObject* Data)
                 // get fluxes if form that allows easy modification
                 array = (PyArrayObject*) \
                     PyArray_FromAny(sflux, PyArray_DescrFromType(NPY_FLOAT),
-                                    2, 2, NPY_INOUT_ARRAY | NPY_FORCECAST,
+                                    2, 2, NPY_ARRAY_INOUT_ARRAY | NPY_ARRAY_FORCECAST,
                                     NULL);
                 if(!array){
                     PyErr_SetString(PyExc_ValueError, "doppler.update_data:"
@@ -2392,7 +2391,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, itype,
                  def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
-        delete [] image;
+        delete[] image;
         return NULL;
     }
 
@@ -2402,17 +2401,17 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<std::vector<float> > expose;
     std::vector<std::vector<int> > nsub;
     std::vector<double> fwhm;
-    float *flux   = new float[ndpix];
-    float *ferr   = new float[ndpix];
-    double *wave  = new double[ndpix];
+    float *flux = new float[ndpix];
+    float *ferr = new float[ndpix];
+    double *wave = new double[ndpix];
 
     // read the data
     if(!read_data(data, flux, ferr, wave, nwave,
                   nspec, time, expose, nsub, fwhm)){
-        delete [] wave;
-        delete [] ferr;
-        delete [] flux;
-        delete [] image;
+        delete[] wave;
+        delete[] ferr;
+        delete[] flux;
+        delete[] image;
         return NULL;
     }
 
@@ -2461,7 +2460,7 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
 
     // declare the variables to hold the Map data
-    float* input  = new float[nipix];
+    float* input = new float[nipix];
     float* output = new float[nipix];
     std::vector<Nxyz> nxyz;
     std::vector<DefOpt> def;
@@ -2474,8 +2473,8 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     // read the Map
     if(!read_map(map, input, nxyz, vxy, vz, wavel, gamma, scale, itype,
                  def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
-        delete [] output;
-        delete [] input;
+        delete[] output;
+        delete[] input;
         return NULL;
     }
 
@@ -2558,8 +2557,10 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
 
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, itype,
-                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac))
+                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
+        delete[] image;
         return NULL;
+    }
 
     // declare the variables to hold the Data data
     std::vector<size_t> nwave, nspec;
@@ -2567,14 +2568,18 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     std::vector<std::vector<float> > expose;
     std::vector<std::vector<int> > nsub;
     std::vector<double> fwhm;
-    float *flux   = new float[ndpix];
-    float *ferr   = new float[ndpix];
-    double *wave  = new double[ndpix];
+    float *flux = new float[ndpix];
+    float *ferr = new float[ndpix];
+    double *wave = new double[ndpix];
 
     // read the data
     if(!read_data(data, flux, ferr, wave, nwave,
-                  nspec, time, expose, nsub, fwhm))
+                  nspec, time, expose, nsub, fwhm)){
+        delete[] wave;
+        delete[] ferr;
+        delete[] flux;
         return NULL;
+    }
 
     // overwriting image
     tr(image, nxyz, vxy, vz, wavel, gamma, scale, itype, tzero, period, quad,
@@ -2812,7 +2817,7 @@ static struct PyModuleDef moduledef = {
 };
 
 PyMODINIT_FUNC
-init_doppler(void)
+PyInit__doppler(void)
 {
     return PyModule_Create(&moduledef);
 }
