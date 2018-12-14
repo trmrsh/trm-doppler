@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-
-usage = \
-"""
-comdat computes the data corresponding to a Doppler map, with the option of
-adding noise.
-"""
-
 import argparse
 import numpy as np
 import pylab as plt
@@ -13,7 +5,19 @@ from astropy.io import fits
 from trm import doppler
 import copy
 
+__all__ = ['comdat',]
+
 def comdat(args=None):
+    """
+    comdat computes the data corresponding to a Doppler map, with the option of
+    adding noise. Use '-h' to see help.
+    """
+
+    usage = \
+    """
+    comdat computes the data corresponding to a Doppler map, with the option of
+    adding noise.
+    """
 
     parser = argparse.ArgumentParser(description=usage)
 

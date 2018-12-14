@@ -3,9 +3,7 @@ from the terminal.
 
 """
 
-from .comdat import comdat
-
-__all__ = [ \
-            'comdat',
-        ]
+from .comdat import *
+from .comdef import *
+from .makedata import makedata
 

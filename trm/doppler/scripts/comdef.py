@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 
-usage = \
-"""
-comdef computes the default equivalent to an image.
-"""
-
 import argparse
 import numpy as np
 import pylab as plt
@@ -12,24 +7,29 @@ from astropy.io import fits
 from trm import doppler
 import copy
 
-parser = argparse.ArgumentParser(description=usage)
+def condef(args=None):
+    usage = \
+    """
+    comdef computes the default equivalent to an image.
+    """
 
-# positional
-parser.add_argument('map',   help='name of the input map')
-parser.add_argument('dout',  help='default output file')
+    parser = argparse.ArgumentParser(description=usage)
 
-# OK, done with arguments.
-args = parser.parse_args()
+    # positional
+    parser.add_argument('map',   help='name of the input map')
+    parser.add_argument('dout',  help='default output file')
 
-# load map
-dmap  = doppler.Map.rfits(doppler.afits(args.map))
+    # OK, done with arguments.
+    args = parser.parse_args()
 
-# copy the map to compute the entropy
-mcopy = copy.deepcopy(dmap)
+    # load map
+    dmap  = doppler.Map.rfits(doppler.afits(args.map))
 
-# compute default
-doppler.comdef(dmap)
+    # copy the map to compute the entropy
+    mcopy = copy.deepcopy(dmap)
 
-# write the result to a FITS file
-dmap.wfits(doppler.afits(args.dout))
+    # compute default
+    doppler.comdef(dmap)
 
+    # write the result to a FITS file
+    dmap.wfits(doppler.afits(args.dout))
