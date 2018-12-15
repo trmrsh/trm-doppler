@@ -1,7 +1,4 @@
 import argparse
-# annoyingly seems to need the next line to prevent an immediate segfault in memit,
-# and I can't work out why
-#import pylab as plt
 from trm import doppler
 
 def memit(args=None):
