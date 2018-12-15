@@ -1325,7 +1325,6 @@ void Mem::tropus(const int k, const int j){
 bool
 npix_map(PyObject *Map, size_t& npix)
 {
-
     // set status code
     bool status = false;
 
@@ -1337,11 +1336,10 @@ npix_map(PyObject *Map, size_t& npix)
     npix = 0;
 
     // initialise attribute pointers
-    PyObject *data=NULL, *image=NULL;
-    PyArrayObject* idata=NULL;
+    PyObject *data=NULL, *image=NULL, *idata=NULL;
 
     // get the data attribute.
-    data  = PyObject_GetAttrString(Map, "data");
+    data = PyObject_GetAttrString(Map, "data");
     if(!data){
         PyErr_SetString(PyExc_ValueError,
                         "doppler.npix_map: Map has no attribute called data");
@@ -1371,12 +1369,13 @@ npix_map(PyObject *Map, size_t& npix)
             }
 
             // get data attribute
-            idata = (PyArrayObject*) PyObject_GetAttrString(image, "data");
+            idata = PyObject_GetAttrString(image, "data");
 
             if(idata && PyArray_Check(idata) &&
-               (PyArray_NDIM(idata) == 2 || PyArray_NDIM(idata) == 3)){
+               (PyArray_NDIM((PyArrayObject*)idata) == 2 ||
+                PyArray_NDIM((PyArrayObject*)idata) == 3)){
 
-                npix += PyArray_SIZE(idata);
+                npix += PyArray_SIZE((PyArrayObject*)idata);
 
                 // clear temporaries
                 Py_CLEAR(idata);
@@ -1484,12 +1483,12 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     itype.clear();
 
     // get attributes.
-    itzero  = PyObject_GetAttrString(map, "tzero");
+    itzero = PyObject_GetAttrString(map, "tzero");
     iperiod = PyObject_GetAttrString(map, "period");
-    iquad   = PyObject_GetAttrString(map, "quad");
-    ivfine  = PyObject_GetAttrString(map, "vfine");
-    isfac   = PyObject_GetAttrString(map, "sfac");
-    data    = PyObject_GetAttrString(map, "data");
+    iquad = PyObject_GetAttrString(map, "quad");
+    ivfine = PyObject_GetAttrString(map, "vfine");
+    isfac = PyObject_GetAttrString(map, "sfac");
+    data = PyObject_GetAttrString(map, "data");
 
     if(!itzero || !iperiod || !iquad || !ivfine || !isfac || !data){
         PyErr_SetString(PyExc_ValueError,
@@ -1528,14 +1527,14 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
             }
 
             // get attributes of the image
-            idata  = PyObject_GetAttrString(image, "data");
-            iwave  = PyObject_GetAttrString(image, "wave");
+            idata = PyObject_GetAttrString(image, "data");
+            iwave = PyObject_GetAttrString(image, "wave");
             igamma = PyObject_GetAttrString(image, "gamma");
-            idef   = PyObject_GetAttrString(image, "default");
+            idef = PyObject_GetAttrString(image, "default");
             iscale = PyObject_GetAttrString(image, "scale");
             iitype = PyObject_GetAttrString(image, "itype");
-            ivxy   = PyObject_GetAttrString(image, "vxy");
-            ivz    = PyObject_GetAttrString(image, "vz");
+            ivxy = PyObject_GetAttrString(image, "vxy");
+            ivz = PyObject_GetAttrString(image, "vz");
 
             if(idata && iwave && igamma && ivxy && idef && iitype && iscale && ivz){
 
@@ -1902,11 +1901,10 @@ npix_data(PyObject *Data, size_t& npix)
     npix = 0;
 
     // initialise attribute pointers
-    PyObject *data=NULL, *spectra=NULL;
-    PyArrayObject *sflux=NULL;
+    PyObject *data=NULL, *spectra=NULL, *sflux=NULL;
 
     // get the data attribute.
-    data  = PyObject_GetAttrString(Data, "data");
+    data = PyObject_GetAttrString(Data, "data");
     if(!data){
         PyErr_SetString(PyExc_ValueError,
                         "doppler.npix_data: Data has no attribute called data");
@@ -1935,11 +1933,12 @@ npix_data(PyObject *Data, size_t& npix)
             }
 
             // get flux attribute
-            sflux   = (PyArrayObject*) PyObject_GetAttrString(spectra, "flux");
+            sflux = PyObject_GetAttrString(spectra, "flux");
 
-            if(sflux && PyArray_Check(sflux) && PyArray_NDIM(sflux) == 2){
+            if(sflux && PyArray_Check(sflux) &&
+               PyArray_NDIM((PyArrayObject*)sflux) == 2){
 
-                npix += PyArray_SIZE(sflux);
+                npix += PyArray_SIZE((PyArrayObject*)sflux);
 
                 // clear temporaries
                 Py_CLEAR(sflux);
@@ -2819,5 +2818,8 @@ static struct PyModuleDef moduledef = {
 PyMODINIT_FUNC
 PyInit__doppler(void)
 {
+    // import_array needed to prevent segfaults with numpy
+    // array
+    import_array();
     return PyModule_Create(&moduledef);
 }
