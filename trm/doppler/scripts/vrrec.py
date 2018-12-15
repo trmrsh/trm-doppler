@@ -74,7 +74,7 @@ def vrrec(args=None):
         fout.write('# vmax   = ' + str(vmax) + '\n')
         fout.write('#\n')
 
-        for nm in xrange(nmonte):
+        for nm in range(nmonte):
 
             # add noise and accumulate V/R data
             times  = []

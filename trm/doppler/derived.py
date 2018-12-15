@@ -46,20 +46,20 @@ def genmat(grid, data, ntdiv):
     vgrid = grid.vgrid
 
     nrow = 0
-    for iy in xrange(nside):
+    for iy in range(nside):
         vy = vgrid*(iy-(nside-1)/2.)
-        for ix in xrange(nside):
+        for ix in range(nside):
             vx = vgrid*(ix-(nside-1)/2.)
             noff = 0
-            for nd in xrange(len(data.data)):
+            for nd in range(len(data.data)):
                 dat = data.data[nd]
                 tflx = np.zeros_like(dat.flux)
-                for nt in xrange(ntdiv):
+                for nt in range(ntdiv):
                     # compute phases
                     t = dat.time+dat.expose*(float(nt)-float(ntdiv-1)/2.)/ \
                         max(ntdiv-1,1)
                     phase = (t-grid.tzero)/grid.period
-                    for nc in xrange(2):
+                    for nc in range(2):
                         corr   = grid.tzero + \
                             phase*(grid.period + grid.quad*phase) - t
                         deriv  = grid.period + 2.*grid.quad*phase
@@ -71,7 +71,7 @@ def genmat(grid, data, ntdiv):
                     voff   = vx*cosp + vy*sinp
                     voff   = np.reshape(voff,(len(voff),1))
                     nwave = len(grid.wave)
-                    for nim in xrange(nwave):
+                    for nim in range(nwave):
                         w = grid.wave[nim]
                         g = grid.gamma[nim]
                         if nwave == 1:

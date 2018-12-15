@@ -42,7 +42,7 @@ def trtest(args=None):
     cmap = copy.deepcopy(dmap)
     cdat = copy.deepcopy(ddat)
 
-    for i in xrange(args.ntrial):
+    for i in range(args.ntrial):
 
         # fill map with random noise
         for image in dmap.data:

@@ -37,9 +37,9 @@ def grid2map(args=None):
         VX, VY = np.meshgrid(vx, vy)
         dmap[:] = 0
         efac = 1./(grid.vgrid*grid.fratio/doppler.EFAC)**2/2.
-        for iy in xrange(nside):
+        for iy in range(nside):
             vy = grid.vgrid*(iy-(nside-1)/2.)
-            for ix in xrange(nside):
+            for ix in range(nside):
                 vx = grid.vgrid*(ix-(nside-1)/2.)
                 dmap += grid.data[iy,ix]*np.exp(-efac*((VX-vx)**2+(VY-vy)**2))
 

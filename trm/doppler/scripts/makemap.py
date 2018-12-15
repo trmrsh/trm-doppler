@@ -30,15 +30,15 @@ def makemap(args=None):
         help='Will write an example config file rather than read one'
     )
     parser.add_argument(
-        '-c', dest='clobber', action='store_true',
-        help='Clobber output files, both config for -w and the FITS file'
+        '-o', dest='overwrite', action='store_true',
+        help='Overwite on output, both config for -w and the FITS file'
     )
 
     # OK, done with arguments.
     args = parser.parse_args()
 
     if args.write:
-        if not args.clobber and os.path.exists(doppler.acfg(args.config)):
+        if not args.overwrite and os.path.exists(doppler.acfg(args.config)):
             print('\nERROR: ',doppler.acfg(args.config),
                   'already exists and will not be overwritten.')
             exit(1)
@@ -63,7 +63,7 @@ def makemap(args=None):
 #            with makemap.py. Don't change this.
 # target   : what objects this is meant to configure to reduce chances of
 #            confusion with other configuration files. Don't change this.
-# clobber  : overwrite any existing file of the same name or not
+# overwrite : overwrite any existing file of the same name or not
 # vfine    : km/s/pixel of fine array
 # tzero    : zeropoint of ephemeris
 # period   : period of ephemeris
@@ -71,14 +71,14 @@ def makemap(args=None):
 # sfac     : global scaling factor to keep image values in a nice range
 
 [main]
-version  =  {0}
-target   =  maps
-clobber  =  no
-vfine    =  5.
-tzero    =  50000.
-period   =  0.1
-quad     =  0.0
-sfac     =  0.0001
+version =  {0}
+target =  maps
+overwrite =  no
+vfine =  5.
+tzero =  50000.
+period =  0.1
+quad =  0.0
+sfac =  0.0001
 
 # keywords / values for the FITS header. Optional
 
@@ -114,7 +114,7 @@ OBJECT = SS433
 # fwhmxy : if default=GAUSS2D or GAUSS3D, this is FWHM, km/s,to use in X-Y plane
 # fwhmz  : if default=GAUSS3D, this is FWHM, km/s, to use in Z
 # wave1  : wavelength of first line associated with the image
-# gamma1 : systemic velocity, km/s, of first line associated with the image
+# gamma1  : systemic velocity, km/s, of first line associated with the image
 # scale1 : scale factor of first line associated with the image [ignored
 #          if only one wavelength]
 # wave2  : wavelength of second line associated with the image
@@ -135,11 +135,11 @@ bias    = 1.
 fwhmxy  = 500.
 fwhmz   = 0.
 wave1   = 486.1
-gamma1  = 100.
-scale1  = 1.0
+gamm1   = 100.
+scal1   = 1.0
 wave2   = 434.0
-gamma2  = 120.
-scale2  = 0.6
+gamma2   = 120.
+scale2   = 0.6
 
 # The next set of images define an image that has negative regions near the
 # line centre as well as a modulated component.
@@ -355,7 +355,7 @@ ein    = +3.0
             fout.write(config.format(doppler.VERSION))
     else:
 
-        if not args.clobber and os.path.exists(doppler.afits(args.map)):
+        if not args.overwrite and os.path.exists(doppler.afits(args.map)):
             print('\nERROR: ',doppler.afits(args.map),
                   'already exists and will not be overwritten.')
             exit(1)
@@ -375,7 +375,7 @@ ein    = +3.0
             print('Please check this is the right sort of config file')
             exit(1)
 
-        clobber = config.getboolean('main', 'clobber')
+        overwrite = config.getboolean('main', 'overwrite')
         vfine = config.getfloat('main', 'vfine')
         tzero = config.getfloat('main', 'tzero')
         period = config.getfloat('main', 'period')
@@ -407,10 +407,7 @@ ein    = +3.0
                     exit(1)
                 break
 
-            # effectively reverse usual dictionary look up
-            itype = doppler.ITNAMES.keys()[
-                doppler.ITNAMES.values().index(config.get(img,'itype'))
-            ]
+            itype = doppler.RITNAMES[config.get(img,'itype')]
 
             nxy = config.getint(img,'nxy')
             nz  = config.getint(img,'nz')
@@ -430,8 +427,9 @@ ein    = +3.0
             array.fill(back)
 
             # Default
-            defop = doppler.Default.DNAMES.keys()[
-                doppler.Default.DNAMES.values().index(config.get(img,'default'))
+            defop = list(doppler.Default.DNAMES.keys())[
+                list(doppler.Default.DNAMES.values()).index(
+                    config.get(img,'default'))
             ]
             bias = config.getfloat(img,'bias')
             if defop == doppler.Default.UNIFORM:
@@ -584,12 +582,18 @@ ein    = +3.0
                 doppler.Image(array, itype, vxy, wave, gamma,
                               default, scale, vz, group)
             )
-            print('Created image number',nimage,', wavelength(s) =',wave,
-                  'type =',doppler.ITNAMES[itype])
+            print(
+                'Created image number',nimage,', wavelength(s) =',wave,
+                'type =',doppler.ITNAMES[itype]
+            )
             nimage += 1
 
         # create the Map
         map = doppler.Map(mhead,images,tzero,period,quad,vfine,sfac)
 
         # Write to a fits file
-        map.wfits(doppler.afits(args.map),clobber=(args.clobber or clobber))
+        map.wfits(
+            doppler.afits(args.map),
+            overwrite=(args.overwrite or overwrite)
+        )
+        print('Written map to',doppler.afits(args.map))

@@ -75,7 +75,7 @@ def sgrec(args=None):
         fout.write('# fwhm   = ' + str(fwhm) + '\n')
         fout.write('#\n')
 
-        for nm in xrange(nmonte):
+        for nm in range(nmonte):
 
             # add noise and accumulate V/R data
             times = []

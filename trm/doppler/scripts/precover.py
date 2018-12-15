@@ -97,7 +97,7 @@ def precover(args=None):
 
     # nmonte realisations
     for nd, spectra in enumerate(data.data):
-        for nm in xrange(nmonte):
+        for nm in range(nmonte):
             buffer[nd][nm] = np.random.normal(spectra.flux, spectra.ferr)
 
     # allocate space for results as we need to complete all
@@ -136,7 +136,7 @@ def precover(args=None):
         # repeated computation in cond loop
         v[:,:mok] /= s[:mok]
 
-        for nm in xrange(nmonte):
+        for nm in range(nmonte):
             # update data from buffer
             for nd, spectra in enumerate(data.data):
                 spectra.flux = buffer[nd][nm]

@@ -101,9 +101,9 @@ class Grid(object):
             self.head.add_comment(
                 'specification of a laboratory wavelength (WAVE) and systemic velocity')
             self.head.add_comment(
-                '(GAMMA). If there is more than one line, then each requires a scaling')
+                '(GAMM). If there is more than one line, then each requires a scaling')
             self.head.add_comment(
-                'factor (SCALE). Other header parameters specify an ephemeris (TZERO,')
+                'factor (SCAL). Other header parameters specify an ephemeris (TZERO,')
             self.head.add_comment(
                 'PERIOD, QUAD), an overall scale factor (SFAC) designed to allow')
             self.head.add_comment(
@@ -190,14 +190,14 @@ class Grid(object):
         wave   = np.empty((nwave))
         gamma  = np.empty((nwave))
         scale  = np.empty((nwave)) if nwave > 1 else None
-        for n in xrange(nwave):
+        for n in range(nwave):
             wave[n]  = head['WAVE' + str(n+1)]
             del head['WAVE' + str(n+1)]
-            gamma[n] = head['GAMMA' + str(n+1)]
-            del head['GAMMA' + str(n+1)]
+            gamma[n] = head['GAMM' + str(n+1)]
+            del head['GAMM' + str(n+1)]
             if nwave > 1:
-                scale[n] = head['SCALE' + str(n+1)]
-                del head['SCALE' + str(n+1)]
+                scale[n] = head['SCAL' + str(n+1)]
+                del head['SCAL' + str(n+1)]
 
         # Now the data
         data = hdul[0].data
@@ -221,13 +221,13 @@ class Grid(object):
         if len(self.wave) > 1:
             n = 1
             for w, g, s in zip(self.wave,self.gamma,self.scale):
-                head['WAVE'  + str(n)] = (w, 'Central wavelength')
-                head['GAMMA' + str(n)] = (g, 'Systemic velocity, km/s')
-                head['SCALE' + str(n)] = (s, 'Scaling factor')
+                head['WAVE' + str(n)] = (w, 'Central wavelength')
+                head['GAMM' + str(n)] = (g, 'Systemic velocity, km/s')
+                head['SCAL' + str(n)] = (s, 'Scaling factor')
                 n += 1
         else:
             head['WAVE1']  = (self.wave[0], 'Central wavelength')
-            head['GAMMA1'] = (self.gamma[0], 'Systemic velocity, km/s')
+            head['GAMM1'] = (self.gamma[0], 'Systemic velocity, km/s')
         head['SFAC']   = (self.sfac, 'Global scaling factor')
 
         hdul  = [fits.PrimaryHDU(header=head, data=self.data),]

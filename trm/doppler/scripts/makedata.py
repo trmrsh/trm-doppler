@@ -24,14 +24,16 @@ def makedata(args=None):
     # optional
     parser.add_argument('-w', dest='write', action='store_true',
                         help='Will write an example config file rather than read one')
-    parser.add_argument('-c', dest='clobber', action='store_true',
-                        help='Clobber output files, both config for -w and the FITS file')
+    parser.add_argument(
+        '-o', dest='overwrite', action='store_true',
+        help='Overwrite output files, both config for -w and the FITS file'
+    )
 
     # OK, done with arguments.
     args = parser.parse_args()
 
     if args.write:
-        if not args.clobber and os.path.exists(doppler.acfg(args.config)):
+        if not args.overwrite and os.path.exists(doppler.acfg(args.config)):
             print('\nERROR: ',doppler.acfg(args.config),
                   'already exists and will not be overwritten.')
             exit(1)
@@ -52,12 +54,12 @@ def makedata(args=None):
 #            with makemap.py. Don't change this.
 # target   : what objects this is meant to configure to reduce chances of
 #            confusion with other configuration files. Don't change this.
-# clobber  : overwrite any existing file of the same name or not
+# overwrite : overwrite any existing file of the same name or not
 
 [main]
-version  =  {0}
-target   =  data
-clobber  =  no
+version   =  {0}
+target    =  data
+overwrite =  no
 
 # keywords / values for the FITS header. Optional
 
@@ -106,7 +108,8 @@ nsub   = 3
             fout.write(config.format(doppler.VERSION))
     else:
 
-        if not args.clobber and os.path.exists(doppler.afits(args.data)):
+        if not args.overwrite and \
+           os.path.exists(doppler.afits(args.data)):
             print('\nERROR: ',doppler.afits(args.data),
                   'already exists and will not be overwritten.')
             exit(1)
@@ -126,7 +129,7 @@ nsub   = 3
             print('Please check that this is the right config file')
             exit(1)
 
-        clobber= config.getboolean('main', 'clobber')
+        overwrite = config.getboolean('main', 'overwrite')
 
         # the header
         dhead = fits.Header()
@@ -214,5 +217,9 @@ nsub   = 3
         data = doppler.Data(dhead,data)
 
         # Write to a fits file
-        data.wfits(doppler.afits(args.data),clobber=(args.clobber or clobber))
+        data.wfits(
+            doppler.afits(args.data),
+            overwrite=(args.overwrite or overwrite)
+        )
+        print('Written data to',doppler.afits(args.data))
 

@@ -128,7 +128,11 @@ ITNAMES = {
     PSINE2   : 'PSINE2',
     NSINE2   : 'NSINE2',
     PCOSINE2 : 'PCOSINE2',
-    NCOSINE2 : 'NCOSINE2'}
+    NCOSINE2 : 'NCOSINE2'
+}
+
+# inverted version
+RITNAMES = {v: k for k, v in ITNAMES.items()}
 
 class Image(object):
     """
@@ -323,13 +327,16 @@ class Image(object):
             head['VZ']  = (self.vz, 'Vz pixel size, km/s')
         head['NWAVE']  = (len(self.wave), 'Number of wavelengths')
         n = 1
+        # truncate the name to 4 letters to allow up to 9999
+        # wavelengths.
         for w, g, s in zip(self.wave,self.gamma,self.scale):
-            head['WAVE'  + str(n)] = (w, 'Central wavelength')
-            head['GAMMA' + str(n)] = (g, 'Systemic velocity, km/s')
-            head['SCALE' + str(n)] = (s, 'Scaling factor')
+            head['WAVE' + str(n)] = (w, 'Central wavelength')
+            head['GAMM' + str(n)] = (g, 'Systemic velocity, km/s')
+            head['SCAL' + str(n)] = (s, 'Scaling factor')
             n += 1
- 
-        head['DEFAULT'] = (Default.DNAMES[self.default.option], 'Default option')
+
+        head['DEFAULT'] = (
+            Default.DNAMES[self.default.option],'Default option')
 
         head['BIAS'] = (self.default.bias, 'Bias to steer image')
 
@@ -370,7 +377,6 @@ class Image(object):
         if self.data.ndim == 3:
             head['CUNIT3'] = 'km/s'
 
-
         # ok return with ImageHDU
         return fits.ImageHDU(self.data,head)
 
@@ -383,15 +389,15 @@ class Image(object):
         data = hdu.data
         head = hdu.header
         if 'VXY' not in head or 'NWAVE' not in head \
-                or 'WAVE1' not in head or 'GAMMA1' not in head \
+                or 'WAVE1' not in head or 'GAMM1' not in head \
                 or 'DEFAULT' not in head or 'BIAS' not in head \
                 or 'ITYPE' not in head:
             raise DopplerError('Image.fromHDU: one or more of' +
-                               ' VXY, NWAVE, WAVE1, GAMMA1, ' +
+                               ' VXY, NWAVE, WAVE1, GAMM1, ' +
                                'DEFAULT, BIAS, ITYPE not found in HDU header')
 
         # effectively reverse usual dictionary look up
-        itype = ITNAMES.keys()[ITNAMES.values().index(head['ITYPE'])]
+        itype = RITNAMES[head['ITYPE']]
 
         vxy   = head['VXY']
         if data.ndim == 3:
@@ -403,13 +409,13 @@ class Image(object):
         wave  = np.empty((nwave))
         gamma = np.empty((nwave))
         scale = np.empty((nwave))
-        for n in xrange(nwave):
+        for n in range(nwave):
             wave[n]  = head['WAVE' + str(n+1)]
-            gamma[n] = head['GAMMA' + str(n+1)]
+            gamma[n] = head['GAMM' + str(n+1)]
             if nwave == 1:
                 scale[n] = 1.0
             else:
-                scale[n] = head['SCALE' + str(n+1)]
+                scale[n] = head['SCAL' + str(n+1)]
 
         if head['DEFAULT'] == 'UNIFORM':
             default = Default.uniform(head['BIAS'])
@@ -535,9 +541,9 @@ class Map(object):
             self.head.add_comment(
                 'Each line requires specification of a laboratory wavelength (WAVE) and')
             self.head.add_comment(
-                'systemic velocity (GAMMA). If there is more than one line, then each')
+                'systemic velocity (GAMM). If there is more than one line, then each')
             self.head.add_comment(
-                'requires a scaling factor (SCALE). Again these are contained in the HDU.')
+                'requires a scaling factor (SCAL). Again these are contained in the HDU.')
             self.head.add_comment(
                 'Each line also requires information on how to construct a default image')
             self.head.add_comment(
@@ -623,7 +629,7 @@ class Map(object):
         # OK, now make the map
         return cls(head, data, tzero, period, quad, vfine, sfac)
 
-    def wfits(self, fname, clobber=True):
+    def wfits(self, fname, overwrite=True):
         """
         Writes a Map to a file
         """
@@ -638,7 +644,7 @@ class Map(object):
         for i, image in enumerate(self.data):
             hdul.append(image.toHDU(i+1))
         hdulist = fits.HDUList(hdul)
-        hdulist.writeto(fname, clobber=clobber)
+        hdulist.writeto(fname, overwrite=overwrite)
 
     def isPositive(self):
         """

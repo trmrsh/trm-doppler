@@ -9,8 +9,7 @@ from astropy.io import fits
 from .core import *
 
 class Spectra(object):
-    """
-    Container for a set of spectra. This is meant to represent a homogenous
+    """Container for a set of spectra. This is meant to represent a homogenous
     set of spectra, e.g. a set of spectra taken on one arm of a spectrograph
     over two orbits of a binary for instance. Each spectrum must have the same
     number of pixels, but there can be wavelength shifts between spectra, and
@@ -107,8 +106,9 @@ class Spectra(object):
         Creates a Spectra from a list of 4 HDUs.
         """
         if len(hdul) < 4:
-            raise DopplerError('Spectra.fromHDUl: minimum 4' +
-                               ' HDUs are required.')
+            raise DopplerError(
+                'Spectra.fromHDUl: minimum 4 HDUs are required.'
+            )
 
         flux   = hdul[0].data
         fwhm   = hdul[0].header['FWHM']
@@ -122,14 +122,14 @@ class Spectra(object):
         return cls(flux,ferr,wave,time,expose,nsub,fwhm)
 
     def toHDUl(self, n):
-        """
-        Returns the Spectra as an equivalent list of astropy.io.fits HDUs (3
+        """Returns the Spectra as an equivalent list of astropy.io.fits HDUs (3
         image, 1 table, *not* an HDUList), suited to adding onto other hdus
         for eventual writing to a FITS file
 
         Arguments::
 
           n : a number to append to the EXTNAME header extension names.
+
         """
         head = fits.Header()
         head['TYPE']    = 'Fluxes'
@@ -166,13 +166,13 @@ class Spectra(object):
             ', nsub=' + repr(self.nsub) + ', fwhm=' + repr(self.fwhm) + ')'
 
 class Data(object):
-    """
-    This class represents all the data needed for Doppler tomogarphy.  It has
+    """This class represents all the data needed for Doppler tomogarphy.  It has
     the following attributes::
 
       head : an astropy.io.fits.Header object
 
       data : a list of Spectra objects.
+
     """
 
     def __init__(self, head, data):
@@ -250,12 +250,12 @@ class Data(object):
                                ' did not have 4n+1 HDUs')
         head = hdul[0].header
         data = []
-        for nhdu in xrange(1,len(hdul),4):
+        for nhdu in range(1,len(hdul),4):
             data.append(Spectra.fromHDUl(hdul[nhdu:]))
 
         return cls(head, data)
 
-    def wfits(self, fname, clobber=True):
+    def wfits(self, fname, overwrite=True):
         """
         Writes a Data to an hdu list
         """
@@ -263,7 +263,7 @@ class Data(object):
         for i, spectra in enumerate(self.data):
             hdul += spectra.toHDUl(i+1)
         hdulist = fits.HDUList(hdul)
-        hdulist.writeto(fname, clobber=clobber)
+        hdulist.writeto(fname, overwrite=overwrite)
 
     def __repr__(self):
         return 'Data(head=' + repr(self.head) + \

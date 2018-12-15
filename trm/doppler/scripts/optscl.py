@@ -63,7 +63,7 @@ def optscl(args=None):
         sindices = []
         osfacs = []
         for ni, image in enumerate(dmap.data):
-            for ns in xrange(len(image.scale)):
+            for ns in range(len(image.scale)):
                 sindices.append((ni,ns))
                 osfacs.append(image.scale[ns])
                 image.scale[ns] = 0.
@@ -85,16 +85,16 @@ def optscl(args=None):
         nvec = len(dvecs)
         A = np.empty((nvec,nvec))
         b = np.empty((nvec))
-        for j in xrange(nvec):
+        for j in range(nvec):
             b[j] = (wgt[ok]*dvecs[j]*flux[ok]).sum()
-            for i in xrange(j+1):
+            for i in range(j+1):
                 A[j][i] = (wgt[ok]*dvecs[j]*dvecs[i]).sum()
                 A[i][j] = A[j][i]
 
         nsfacs = linalg.solve(A,b)
         ocalc = np.zeros_like(flux)
         ncalc = np.zeros_like(flux)
-        for j in xrange(nvec):
+        for j in range(nvec):
             ocalc += osfacs[j]*dvecs[j]
             ncalc += nsfacs[j]*dvecs[j]
 
