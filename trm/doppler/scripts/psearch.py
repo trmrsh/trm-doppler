@@ -6,21 +6,21 @@ from trm import doppler
 
 def psearch(args=None):
     usage = \
-            """
-            Carries out a period search by computing chi**2 versus period, or more
-            accurately frequency since one can step uniformly in frequency. Results are
-            printed to stdout. This routine uses single value decomposition to match a
-            grid of gaussians to data. The parameter cond either takes value(s) < 1
-            meaning the lowest singular value as a fraction of the maximum, or >=1 meaning
-            the integer number of the highest singular values to adopt. Be warned: this is
-            slow.
+            """ Carries out a period search by computing chi**2 versus period, or more
+            accurately frequency since one can step uniformly in
+            frequency. Results are printed to stdout. This routine uses single
+            value decomposition to match a grid of gaussians to data. The
+            parameter cond either takes value(s) < 1 meaning the lowest
+            singular value as a fraction of the maximum, or >=1 meaning the
+            integer number of the highest singular values to adopt. Be warned:
+            this is slow.
 
-            One line per frequency will be printed consisting of the frequency, the
-            period, the chi**2 values [one per value of cond], reduced chi**2 [one per
-            cond], and then information on the conditioning [one per cond]. If a value
-            of cond < 1, then the number of SVs used will be reported; if cond > 1 then
-            the largest SV used as a fraction of the maximum will be reported.
-            """
+            One line per frequency will be printed consisting of the
+            frequency, the period, the chi**2 values [one per value of cond],
+            reduced chi**2 [one per cond], and then information on the
+            conditioning [one per cond]. If a value of cond < 1, then the
+            number of SVs used will be reported; if cond > 1 then the largest
+            SV used as a fraction of the maximum will be reported.  """
 
     parser = argparse.ArgumentParser(description=usage)
 

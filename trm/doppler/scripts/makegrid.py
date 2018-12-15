@@ -1,45 +1,55 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
-
-usage = \
-"""
-makegrid creates Doppler grids from configuration files to provide starter maps
-and for testing. Use the -w option to write out an example config file to
-start from. config files must end in ".cfg".
-"""
-
 import argparse, os, ConfigParser
 import numpy as np
 from astropy.io import fits
 from trm import doppler
 
-parser = argparse.ArgumentParser(description=usage, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+def makegrid(args=None):
+    usage = \
+            """
+            makegrid creates Doppler grids from configuration files to provide starter maps
+            and for testing. Use the -w option to write out an example config file to
+            start from. config files must end in ".cfg".
+            """
 
-# positional
-parser.add_argument('config', help='configuration file name, output if -w is set')
-parser.add_argument('grid', nargs='?', default='mgrid.fits', help='name of output grid')
+    parser = argparse.ArgumentParser(
+        description=usage,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
 
-# optional
-parser.add_argument('-w', dest='write', action='store_true',
-                    help='Will write an example config file rather than read one')
-parser.add_argument('-c', dest='clobber', action='store_true',
-                    help='Clobber output files, both config for -w and the FITS file')
+    # positional
+    parser.add_argument(
+        'config', help='configuration file name, output if -w is set'
+    )
+    parser.add_argument(
+        'grid', nargs='?', default='mgrid.fits', help='name of output grid'
+    )
 
-# OK, done with arguments.
-args = parser.parse_args()
+    # optional
+    parser.add_argument(
+        '-w', dest='write', action='store_true',
+        help='Will write an example config file rather than read one'
+    )
+    parser.add_argument(
+        '-c', dest='clobber', action='store_true',
+        help='Clobber output files, both config for -w and the FITS file'
+    )
 
-if args.write:
-    if not args.clobber and os.path.exists(doppler.acfg(args.config)):
-        print('\nERROR: ',doppler.acfg(args.config),
-              'already exists and will not be overwritten.')
-        exit(1)
+    # OK, done with arguments.
+    args = parser.parse_args()
 
-    if args.grid != 'mgrid.fits':
-        print('\nWARNING: ignoring map output file =',args.grid)
+    if args.write:
+        if not args.clobber and os.path.exists(doppler.acfg(args.config)):
+            print('\nERROR: ',doppler.acfg(args.config),
+                  'already exists and will not be overwritten.')
+            exit(1)
 
-    # Example config file
-    config = """\
+        if args.grid != 'mgrid.fits':
+            print('\nWARNING: ignoring map output file =',args.grid)
+
+        # Example config file
+        config = """\
 # This is an example of a configuration file needed by makegrid.py to create
 # Doppler grids.
 #
@@ -90,72 +100,78 @@ scale2   = 0.6
 ORIGIN = makegrid.py
 OBJECT = SS433
 """
-    with open(doppler.acfg(args.config),'w') as fout:
-        fout.write(config.format(doppler.VERSION))
-else:
-
-    if not args.clobber and os.path.exists(doppler.afits(args.grid)):
-        print('\nERROR: ',doppler.afits(args.grid),
-              'already exists and will not be overwritten.')
-        exit(1)
-
-    config = ConfigParser.RawConfigParser()
-    config.read(doppler.acfg(args.config))
-
-    tver   = config.getint('main', 'version')
-    if tver != doppler.VERSION:
-        print('Version number in config file =',tver,
-              'conflicts with version of script =',doppler.VERSION)
-        print('Will continue but there may be problems')
-
-    target = config.get('main', 'target')
-    if target != 'grids':
-        print('Found target =',target,'but expected = grids')
-        print('Please check this is the right sort of config file')
-        exit(1)
-
-    clobber= config.getboolean('main', 'clobber')
-    ngrid  = config.getfloat('main', 'ngrid')
-    vgrid  = config.getfloat('main', 'vgrid')
-    fratio = config.getfloat('main', 'fratio')
-    tzero  = config.getfloat('main', 'tzero')
-    period = config.getfloat('main', 'period')
-    quad   = config.getfloat('main', 'quad')
-    sfac   = config.getfloat('main', 'sfac')
-
-    if config.has_option('main', 'wave2'):
-        wave, gamma, scale = [], [], []
-        nwave = 1
-        while True:
-            w = 'wave' + str(nwave)
-            if not config.has_option('main',w):
-                break
-            g = 'gamma' + str(nwave)
-            s = 'scale' + str(nwave)
-            wave.append(config.getfloat('main',w))
-            gamma.append(config.getfloat('main',g))
-            scale.append(config.getfloat('main',s))
-            nwave += 1
-
+        with open(doppler.acfg(args.config),'w') as fout:
+            fout.write(config.format(doppler.VERSION))
     else:
-        wave  = config.getfloat('main','wave1')
-        gamma = config.getfloat('main','gamma1')
-        scale = None
 
-    # the header
-    mhead = fits.Header()
-    if config.has_section('fitshead'):
-        for name, value in config.items('fitshead'):
-            if len(name) <= 8:
-                mhead[name] = value
-            else:
-                print('\nERROR: Keyword in fitshead section = ' +
-                      name + ' is too long.')
-                exit(1)
+        if not args.clobber and os.path.exists(doppler.afits(args.grid)):
+            print('\nERROR: ',doppler.afits(args.grid),
+                  'already exists and will not be overwritten.')
+            exit(1)
 
-    # create the Grid
-    grid = doppler.Grid(mhead, np.zeros((ngrid,ngrid)), tzero, period, quad,
-                        vgrid, fratio, wave, gamma, scale, sfac)
+        config = ConfigParser.RawConfigParser()
+        config.read(doppler.acfg(args.config))
 
-    # Write to a fits file
-    grid.wfits(doppler.afits(args.grid),clobber=(args.clobber or clobber))
+        tver   = config.getint('main', 'version')
+        if tver != doppler.VERSION:
+            print('Version number in config file =',tver,
+                  'conflicts with version of script =',doppler.VERSION)
+            print('Will continue but there may be problems')
+
+        target = config.get('main', 'target')
+        if target != 'grids':
+            print('Found target =',target,'but expected = grids')
+            print('Please check this is the right sort of config file')
+            exit(1)
+
+        clobber = config.getboolean('main', 'clobber')
+        ngrid = config.getfloat('main', 'ngrid')
+        vgrid = config.getfloat('main', 'vgrid')
+        fratio = config.getfloat('main', 'fratio')
+        tzero = config.getfloat('main', 'tzero')
+        period = config.getfloat('main', 'period')
+        quad = config.getfloat('main', 'quad')
+        sfac = config.getfloat('main', 'sfac')
+
+        if config.has_option('main', 'wave2'):
+            wave, gamma, scale = [], [], []
+            nwave = 1
+            while True:
+                w = 'wave' + str(nwave)
+                if not config.has_option('main',w):
+                    break
+                g = 'gamma' + str(nwave)
+                s = 'scale' + str(nwave)
+                wave.append(config.getfloat('main',w))
+                gamma.append(config.getfloat('main',g))
+                scale.append(config.getfloat('main',s))
+                nwave += 1
+
+        else:
+            wave = config.getfloat('main','wave1')
+            gamma = config.getfloat('main','gamma1')
+            scale = None
+
+        # the header
+        mhead = fits.Header()
+        if config.has_section('fitshead'):
+            for name, value in config.items('fitshead'):
+                if len(name) <= 8:
+                    mhead[name] = value
+                else:
+                    print(
+                        '\nERROR: Keyword in fitshead section = ' +
+                        name + ' is too long.'
+                    )
+                    exit(1)
+
+        # create the Grid
+        grid = doppler.Grid(
+            mhead, np.zeros((ngrid,ngrid)), tzero, period, quad,
+            vgrid, fratio, wave, gamma, scale, sfac
+        )
+
+        # Write to a fits file
+        grid.wfits(
+            doppler.afits(args.grid),clobber=(args.clobber or clobber)
+        )

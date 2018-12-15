@@ -5,14 +5,13 @@ from trm import doppler
 
 def svdfit(args=None):
     usage = \
-            """
-            singular value decomposition. Computes the Grid that best matches a Data,
-            allowing the user to control the number of singular values used with the
-            parameter 'cond'. If cond < 1, then only singular values greater than cond as
-            a fraction of the highest are used. If cond >=1 then it is rounded to the
-            nearest integer and used as the number of the highest singular values to use.
-            The maximum possible value equals the number of points in the grid.
-            """
+            """ singular value decomposition. Computes the Grid that best matches a Data,
+            allowing the user to control the number of singular values used
+            with the parameter 'cond'. If cond < 1, then only singular values
+            greater than cond as a fraction of the highest are used. If cond
+            >=1 then it is rounded to the nearest integer and used as the
+            number of the highest singular values to use.  The maximum
+            possible value equals the number of points in the grid.  """
 
     parser = argparse.ArgumentParser(description=usage)
 

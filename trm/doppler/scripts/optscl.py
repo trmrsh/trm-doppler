@@ -8,7 +8,7 @@ import copy
 
 def retarr(data):
     """
-    Returns data and errors (>0) in a Data 
+    Returns data and errors (>0) in a Data
     as two 1D arrays
     """
     dat = np.array([])

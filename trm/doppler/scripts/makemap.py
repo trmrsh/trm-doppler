@@ -1,47 +1,54 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
-
-usage = \
-"""
-makemap creates Doppler maps from configuration files to provide starter maps
-and for testing. Use the -w option to write out an example config file to
-start from. config files must end in ".cfg".
-"""
-
 import argparse, os, ConfigParser
 import numpy as np
 from scipy import ndimage
 from astropy.io import fits
 from trm import doppler
 
+def makemap(args=None):
+    usage = \
+            """
+            makemap creates Doppler maps from configuration files to provide starter maps
+            and for testing. Use the -w option to write out an example config file to
+            start from. config files must end in ".cfg".
+            """
 
-parser = argparse.ArgumentParser(description=usage, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=usage,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
 
-# positional
-parser.add_argument('config', help='configuration file name, output if -w is set')
-parser.add_argument('map', nargs='?', default='mmap.fits', help='name of output map')
+    # positional
+    parser.add_argument(
+        'config', help='configuration file name, output if -w is set')
+    parser.add_argument(
+        'map', nargs='?', default='mmap.fits', help='name of output map')
 
-# optional
-parser.add_argument('-w', dest='write', action='store_true',
-                    help='Will write an example config file rather than read one')
-parser.add_argument('-c', dest='clobber', action='store_true',
-                    help='Clobber output files, both config for -w and the FITS file')
+    # optional
+    parser.add_argument(
+        '-w', dest='write', action='store_true',
+        help='Will write an example config file rather than read one'
+    )
+    parser.add_argument(
+        '-c', dest='clobber', action='store_true',
+        help='Clobber output files, both config for -w and the FITS file'
+    )
 
-# OK, done with arguments.
-args = parser.parse_args()
+    # OK, done with arguments.
+    args = parser.parse_args()
 
-if args.write:
-    if not args.clobber and os.path.exists(doppler.acfg(args.config)):
-        print('\nERROR: ',doppler.acfg(args.config),
-              'already exists and will not be overwritten.')
-        exit(1)
+    if args.write:
+        if not args.clobber and os.path.exists(doppler.acfg(args.config)):
+            print('\nERROR: ',doppler.acfg(args.config),
+                  'already exists and will not be overwritten.')
+            exit(1)
 
-    if args.map != 'mmap.fits':
-        print('\nWARNING: ignoring map output file =',args.map)
+        if args.map != 'mmap.fits':
+            print('\nWARNING: ignoring map output file =',args.map)
 
-    # Example config file
-    config = """\
+        # Example config file
+        config = """\
 # This is an example of a configuration file needed by makemap.py to create
 # starter Doppler maps showing all possible features rather than attempting
 # great realism. A few features are optional, as explained below. The config
@@ -106,7 +113,7 @@ OBJECT = SS433
 #          want to suppress one image relative to another, a bias < 1 can be
 #          useful.
 # fwhmxy : if default=GAUSS2D or GAUSS3D, this is FWHM, km/s,to use in X-Y plane
-# fwhmz  : if default=GAUSS3D, this is FWHM, km/s, to use in Z 
+# fwhmz  : if default=GAUSS3D, this is FWHM, km/s, to use in Z
 # wave1  : wavelength of first line associated with the image
 # gamma1 : systemic velocity, km/s, of first line associated with the image
 # scale1 : scale factor of first line associated with the image [ignored
@@ -345,234 +352,245 @@ ipeak  = 0.5
 eout   = -2.5
 ein    = +3.0
 """
-    with open(doppler.acfg(args.config),'w') as fout:
-        fout.write(config.format(doppler.VERSION))
-else:
+        with open(doppler.acfg(args.config),'w') as fout:
+            fout.write(config.format(doppler.VERSION))
+    else:
 
-    if not args.clobber and os.path.exists(doppler.afits(args.map)):
-        print('\nERROR: ',doppler.afits(args.map),
-              'already exists and will not be overwritten.')
-        exit(1)
+        if not args.clobber and os.path.exists(doppler.afits(args.map)):
+            print('\nERROR: ',doppler.afits(args.map),
+                  'already exists and will not be overwritten.')
+            exit(1)
 
-    config = ConfigParser.RawConfigParser()
-    config.read(doppler.acfg(args.config))
+        config = ConfigParser.RawConfigParser()
+        config.read(doppler.acfg(args.config))
 
-    tver   = config.getint('main', 'version')
-    if tver != doppler.VERSION:
-        print('Version number in config file =',tver,
-              'conflicts with version of script =',doppler.VERSION)
-        print('Will continue but there may be problems')
+        tver   = config.getint('main', 'version')
+        if tver != doppler.VERSION:
+            print('Version number in config file =',tver,
+                  'conflicts with version of script =',doppler.VERSION)
+            print('Will continue but there may be problems')
 
-    target = config.get('main', 'target')
-    if target != 'maps':
-        print('Found target =',target,'but expected = maps')
-        print('Please check this is the right sort of config file')
-        exit(1)
+        target = config.get('main', 'target')
+        if target != 'maps':
+            print('Found target =',target,'but expected = maps')
+            print('Please check this is the right sort of config file')
+            exit(1)
 
-    clobber= config.getboolean('main', 'clobber')
-    vfine  = config.getfloat('main', 'vfine')
-    tzero  = config.getfloat('main', 'tzero')
-    period = config.getfloat('main', 'period')
-    quad   = config.getfloat('main', 'quad')
-    sfac   = config.getfloat('main', 'sfac')
+        clobber = config.getboolean('main', 'clobber')
+        vfine = config.getfloat('main', 'vfine')
+        tzero = config.getfloat('main', 'tzero')
+        period = config.getfloat('main', 'period')
+        quad = config.getfloat('main', 'quad')
+        sfac = config.getfloat('main', 'sfac')
 
-    # the header
-    mhead = fits.Header()
-    if config.has_section('fitshead'):
-        for name, value in config.items('fitshead'):
-            if len(name) <= 8:
-                mhead[name] = value
-            else:
-                print('\nERROR: Keyword in fitshead section = ' + name + ' is too long.')
-                exit(1)
-
-    # wind through images
-    nimage = 1
-    images = []
-    while True:
-        img = 'image' + str(nimage)
-        if not config.has_section(img):
-            if nimage == 1:
-                print('\nERROR: Could not find section = [image1]')
-                print('ERROR: You must define at least one image')
-                exit(1)
-            break
-
-        # effectively reverse usual dictionary look up
-        itype = doppler.ITNAMES.keys()[doppler.ITNAMES.values().index(config.get(img,'itype'))]
-
-        nxy = config.getint(img,'nxy')
-        nz  = config.getint(img,'nz')
-        if nz > 1:
-            array = np.empty((nz,nxy,nxy))
-        else:
-            array = np.empty((nxy,nxy))
-
-        vxy = config.getfloat(img,'vxy')
-        if nz > 1:
-            vz = config.getfloat(img,'vz')
-        else:
-            vz = None
-
-        # add background
-        back = config.getfloat(img,'back')
-        array.fill(back)
-
-        # Default
-        defop = doppler.Default.DNAMES.keys()[doppler.Default.DNAMES.values().index(config.get(img,'default'))]
-        bias = config.getfloat(img,'bias')
-        if defop == doppler.Default.UNIFORM:
-            default = doppler.Default.uniform(bias)
-
-        elif defop == doppler.Default.GAUSS2D:
-            if nz > 1:
-                print('Cannot use GAUSS2D default for 3D image')
-                print('Probably want GAUSS3D')
-                exit(1)
-            fwhmxy = config.getfloat(img,'fwhmxy')
-            default = doppler.Default.gauss2d(bias, fwhmxy)
-
-        elif defop == doppler.Default.GAUSS3D:
-            if nz == 1:
-                print('Cannot use GAUSS3D default for 2D image')
-                print('Probably want GAUSS2D')
-                exit(1)
-            fwhmxy = config.getfloat(img,'fwhmxy')
-            fwhmz = config.getfloat(img,'fwhmz')
-            default = doppler.Default.gauss3d(bias, fwhmxy, fwhmz)
-
-        if config.has_option(img, 'group'):
-            group = config.getint(img,'group')
-        else:
-            group = 0
-
-        if config.has_option(img, 'wave2'):
-            wave, gamma, scale = [], [], []
-            nwave = 1
-            while True:
-                w = 'wave' + str(nwave)
-                if not config.has_option(img,w):
-                    break
-                g = 'gamma' + str(nwave)
-                s = 'scale' + str(nwave)
-                wave.append(config.getfloat(img,w))
-                gamma.append(config.getfloat(img,g))
-                scale.append(config.getfloat(img,s))
-                nwave += 1
-
-        else:
-            wave  = config.getfloat(img,'wave1')
-            gamma = config.getfloat(img,'gamma1')
-            scale = None
-
-        # look for spots to add
-        sroot = 'spot' + str(nimage) + '_'
-        nspot = 1
-        while True:
-            spot = sroot + str(nspot)
-            if not config.has_section(spot):
-                    break
-
-            fwhm   = config.getfloat(spot,'fwhm')
-            height = config.getfloat(spot,'height')
-            vx     = config.getfloat(spot,'vx')
-            vy     = config.getfloat(spot,'vy')
-            if nz > 1:
-                # need to avoid overwriting the vz
-                # pixel size parameter
-                vzs = config.getfloat(spot,'vz')
-
-            if nspot == 1:
-                # Compute coordinate arrays once
-                if nz == 1:
-                    x, y = doppler.meshgrid(nxy, vxy)
+        # the header
+        mhead = fits.Header()
+        if config.has_section('fitshead'):
+            for name, value in config.items('fitshead'):
+                if len(name) <= 8:
+                    mhead[name] = value
                 else:
-                    x, y, z = doppler.meshgrid(nxy, vxy, nz, vz)
+                    print(
+                        '\nERROR: Keyword in fitshead section = '
+                        + name + ' is too long.'
+                    )
+                    exit(1)
 
-            # compute distance squared from centre of spot
-            if nz == 1:
-                rsq = (x-vx)**2+(y-vy)**2
-            else:
-                rsq = (x-vx)**2+(y-vy)**2+(z-vzs)**2
+        # wind through images
+        nimage = 1
+        images = []
+        while True:
+            img = 'image' + str(nimage)
+            if not config.has_section(img):
+                if nimage == 1:
+                    print('\nERROR: Could not find section = [image1]')
+                    print('ERROR: You must define at least one image')
+                    exit(1)
+                break
 
-            # Finally add in the spot
-            array += height*np.exp(-rsq/((fwhm/doppler.EFAC)**2/2.))
+            # effectively reverse usual dictionary look up
+            itype = doppler.ITNAMES.keys()[
+                doppler.ITNAMES.values().index(config.get(img,'itype'))
+            ]
 
-            # move to the next one
-            nspot += 1
-
-        # look for discs to add. sigxy is blurring sigma
-        # in Vx-Vy in pixels; sigz is in km/s in Vz
-        disc = 'disc' + str(nimage)
-        if config.has_section(disc):
-            vx     = config.getfloat(disc,'vx')
-            vy     = config.getfloat(disc,'vy')
-            sigxy  = config.getfloat(disc,'fwhmxy')/doppler.EFAC/vxy
+            nxy = config.getint(img,'nxy')
+            nz  = config.getint(img,'nz')
             if nz > 1:
-                # need to avoid overwriting the vz
-                # pixel size parameter
-                vzs  = config.getfloat(disc,'vz')
-                sigz = config.getfloat(disc,'fwhmz')/doppler.EFAC
-
-            vpeak  = config.getfloat(disc,'vpeak')
-            vout1  = config.getfloat(disc,'vout1')
-            vout2  = config.getfloat(disc,'vout2')
-            if vpeak <= 0. or vpeak > vout1 or vout1 >= vout2:
-                print('\nERROR: vpeak, vout1, vout2 =',vpeak,vout1,vout2)
-                print('have invalid values. Must be > 0 and monotonically')
-                print('increase.')
-                exit(1)
-
-            ipeak  = config.getfloat(disc,'ipeak')
-            eout   = config.getfloat(disc,'eout')
-            ein    = config.getfloat(disc,'ein')
-            if ein < 0.:
-                print('\nERROR: inner exponent ein =',ein,'cannot be negative.')
-                exit(1)
-
-            # Compute image in 2D to start to save time as we need to blurr
-            # in Vx-Vy
-            x, y = doppler.meshgrid(nxy, vxy)
-
-            # cylindrical coord radius for each point
-            r = np.sqrt((x-vx)**2+(y-vy)**2)
-            twod = np.empty_like(r)
-
-            # Add disc components
-            add = r <= vpeak
-            twod[add] = ipeak*(r[add]/vpeak)**ein
-            add = r > vpeak
-            twod[add] = ipeak*(r[add]/vpeak)**eout
-
-            # linear taper the outermost emission
-            taper = (r > vout1) & (r < vout2)
-            twod[taper] *= (vout2-r[taper])/(vout2-vout1)
-            twod[r >= vout2] = 0.
-
-            # blurr
-            twod = ndimage.gaussian_filter(twod, sigma=sigxy, mode='constant')
-
-            # Now add in
-            if nz == 1:
-                array += twod
+                array = np.empty((nz,nxy,nxy))
             else:
-                twod = np.reshape(twod, (1,twod.shape[0],twod.shape[1]))
-                vzs = config.getfloat(disc,'vz')
-                vzrange = vz*(nz-1)/2.
-                vza = np.linspace(-vzrange,vzrange,nz)
-                zw = np.exp(-((vza-vzs)/sigz)**2/2.)
-                zw = np.reshape(zw, (zw.shape[0],1,1))
-                array += zw*twod
+                array = np.empty((nxy,nxy))
 
-        # create and store image
-        images.append(doppler.Image(array, itype, vxy, wave, gamma,
-                                    default, scale, vz, group))
-        print('Created image number',nimage,', wavelength(s) =',wave,
-              'type =',doppler.ITNAMES[itype])
-        nimage += 1
+            vxy = config.getfloat(img,'vxy')
+            if nz > 1:
+                vz = config.getfloat(img,'vz')
+            else:
+                vz = None
 
-    # create the Map
-    map = doppler.Map(mhead,images,tzero,period,quad,vfine,sfac)
+            # add background
+            back = config.getfloat(img,'back')
+            array.fill(back)
 
-    # Write to a fits file
-    map.wfits(doppler.afits(args.map),clobber=(args.clobber or clobber))
+            # Default
+            defop = doppler.Default.DNAMES.keys()[
+                doppler.Default.DNAMES.values().index(config.get(img,'default'))
+            ]
+            bias = config.getfloat(img,'bias')
+            if defop == doppler.Default.UNIFORM:
+                default = doppler.Default.uniform(bias)
+
+            elif defop == doppler.Default.GAUSS2D:
+                if nz > 1:
+                    print('Cannot use GAUSS2D default for 3D image')
+                    print('Probably want GAUSS3D')
+                    exit(1)
+
+                fwhmxy = config.getfloat(img,'fwhmxy')
+                default = doppler.Default.gauss2d(bias, fwhmxy)
+
+            elif defop == doppler.Default.GAUSS3D:
+                if nz == 1:
+                    print('Cannot use GAUSS3D default for 2D image')
+                    print('Probably want GAUSS2D')
+                    exit(1)
+
+                fwhmxy = config.getfloat(img,'fwhmxy')
+                fwhmz = config.getfloat(img,'fwhmz')
+                default = doppler.Default.gauss3d(bias, fwhmxy, fwhmz)
+
+            if config.has_option(img, 'group'):
+                group = config.getint(img,'group')
+            else:
+                group = 0
+
+            if config.has_option(img, 'wave2'):
+                wave, gamma, scale = [], [], []
+                nwave = 1
+                while True:
+                    w = 'wave' + str(nwave)
+                    if not config.has_option(img,w):
+                        break
+                    g = 'gamma' + str(nwave)
+                    s = 'scale' + str(nwave)
+                    wave.append(config.getfloat(img,w))
+                    gamma.append(config.getfloat(img,g))
+                    scale.append(config.getfloat(img,s))
+                    nwave += 1
+
+            else:
+                wave = config.getfloat(img,'wave1')
+                gamma = config.getfloat(img,'gamma1')
+                scale = None
+
+            # look for spots to add
+            sroot = 'spot' + str(nimage) + '_'
+            nspot = 1
+            while True:
+                spot = sroot + str(nspot)
+                if not config.has_section(spot):
+                    break
+
+                fwhm = config.getfloat(spot,'fwhm')
+                height = config.getfloat(spot,'height')
+                vx = config.getfloat(spot,'vx')
+                vy = config.getfloat(spot,'vy')
+                if nz > 1:
+                    # need to avoid overwriting the vz
+                    # pixel size parameter
+                    vzs = config.getfloat(spot,'vz')
+
+                if nspot == 1:
+                    # Compute coordinate arrays once
+                    if nz == 1:
+                        x, y = doppler.meshgrid(nxy, vxy)
+                    else:
+                        x, y, z = doppler.meshgrid(nxy, vxy, nz, vz)
+
+                # compute distance squared from centre of spot
+                if nz == 1:
+                    rsq = (x-vx)**2+(y-vy)**2
+                else:
+                    rsq = (x-vx)**2+(y-vy)**2+(z-vzs)**2
+
+                # Finally add in the spot
+                array += height*np.exp(-rsq/((fwhm/doppler.EFAC)**2/2.))
+
+                # move to the next one
+                nspot += 1
+
+            # look for discs to add. sigxy is blurring sigma
+            # in Vx-Vy in pixels; sigz is in km/s in Vz
+            disc = 'disc' + str(nimage)
+            if config.has_section(disc):
+                vx = config.getfloat(disc,'vx')
+                vy = config.getfloat(disc,'vy')
+                sigxy = config.getfloat(disc,'fwhmxy')/doppler.EFAC/vxy
+                if nz > 1:
+                    # need to avoid overwriting the vz
+                    # pixel size parameter
+                    vzs = config.getfloat(disc,'vz')
+                    sigz = config.getfloat(disc,'fwhmz')/doppler.EFAC
+
+                vpeak = config.getfloat(disc,'vpeak')
+                vout1 = config.getfloat(disc,'vout1')
+                vout2 = config.getfloat(disc,'vout2')
+                if vpeak <= 0. or vpeak > vout1 or vout1 >= vout2:
+                    print('\nERROR: vpeak, vout1, vout2 =',vpeak,vout1,vout2)
+                    print('have invalid values. Must be > 0 and monotonically')
+                    print('increase.')
+                    exit(1)
+
+                ipeak = config.getfloat(disc,'ipeak')
+                eout = config.getfloat(disc,'eout')
+                ein = config.getfloat(disc,'ein')
+                if ein < 0.:
+                    print('\nERROR: inner exponent ein =',ein,'cannot be negative.')
+                    exit(1)
+
+                # Compute image in 2D to start to save time as we need to
+                # blurr in Vx-Vy
+                x, y = doppler.meshgrid(nxy, vxy)
+
+                # cylindrical coord radius for each point
+                r = np.sqrt((x-vx)**2+(y-vy)**2)
+                twod = np.empty_like(r)
+
+                # Add disc components
+                add = r <= vpeak
+                twod[add] = ipeak*(r[add]/vpeak)**ein
+                add = r > vpeak
+                twod[add] = ipeak*(r[add]/vpeak)**eout
+
+                # linear taper the outermost emission
+                taper = (r > vout1) & (r < vout2)
+                twod[taper] *= (vout2-r[taper])/(vout2-vout1)
+                twod[r >= vout2] = 0.
+
+                # blurr
+                twod = ndimage.gaussian_filter(twod, sigma=sigxy, mode='constant')
+
+                # Now add in
+                if nz == 1:
+                    array += twod
+                else:
+                    twod = np.reshape(twod, (1,twod.shape[0],twod.shape[1]))
+                    vzs = config.getfloat(disc,'vz')
+                    vzrange = vz*(nz-1)/2.
+                    vza = np.linspace(-vzrange,vzrange,nz)
+                    zw = np.exp(-((vza-vzs)/sigz)**2/2.)
+                    zw = np.reshape(zw, (zw.shape[0],1,1))
+                    array += zw*twod
+
+            # create and store image
+            images.append(
+                doppler.Image(array, itype, vxy, wave, gamma,
+                              default, scale, vz, group)
+            )
+            print('Created image number',nimage,', wavelength(s) =',wave,
+                  'type =',doppler.ITNAMES[itype])
+            nimage += 1
+
+        # create the Map
+        map = doppler.Map(mhead,images,tzero,period,quad,vfine,sfac)
+
+        # Write to a fits file
+        map.wfits(doppler.afits(args.map),clobber=(args.clobber or clobber))

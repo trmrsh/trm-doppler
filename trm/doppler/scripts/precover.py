@@ -7,24 +7,25 @@ from trm import doppler
 
 def precover(args=None):
     usage = \
-            """
-            precover is a Monte Carlo routine to test period recovery via SVD. It takes a
-            model file (should have just one image) and a data file and various other
-            parameters, generates data with noise from the model and then tries to locate
-            the best period using the singular value decomposition approach. This routine
-            can be very slow so you should start with small values of 'nmonte' and
-            frequency search range, a large value of 'delta' and just a few 'cond'
-            values. All 'nmonte' realisations of the data have to be stored at once, an
+            """ precover is a Monte Carlo routine to test period recovery via SVD. It
+            takes a model file (should have just one image) and a data file
+            and various other parameters, generates data with noise from the
+            model and then tries to locate the best period using the singular
+            value decomposition approach. This routine can be very slow so you
+            should start with small values of 'nmonte' and frequency search
+            range, a large value of 'delta' and just a few 'cond' values. All
+            'nmonte' realisations of the data have to be stored at once, an
             array is needed to store nmonte*nfreq*ncond chi**2 values, and an
-            ngrid*ngrid*ndata matrix is created, so keep an eye out for memory usage [nfreq =
-            number of frequencies searched, ndata = number of data points].
+            ngrid*ngrid*ndata matrix is created, so keep an eye out for memory
+            usage [nfreq = number of frequencies searched, ndata = number of
+            data points].
 
-            The parameter 'cond' either takes value(s) < 1 meaning the lowest singular
-            value as a fraction of the maximum, or >=1 meaning the integer number of the
-            highest singular values to adopt. The frequency of minimum chi**2 will be
-            reported for each value of 'cond' for each of the 'nmonte' trials, with one
-            line of values per trial.
-            """
+            The parameter 'cond' either takes value(s) < 1 meaning the lowest
+            singular value as a fraction of the maximum, or >=1 meaning the
+            integer number of the highest singular values to adopt. The
+            frequency of minimum chi**2 will be reported for each value of
+            'cond' for each of the 'nmonte' trials, with one line of values
+            per trial.  """
 
     # deal with arguments
     parser = argparse.ArgumentParser(description=usage)

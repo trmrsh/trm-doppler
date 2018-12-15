@@ -7,26 +7,33 @@ from trm import doppler, pgram, subs
 
 def sgrec(args=None):
     usage = \
-            """
-            sgrec ("single gaussian recovery") is a comparison routine for precover.py. In
-            this case the period is found by measuring velocities via cross-correlation
-            with a sigle gaussian.  The routine operates like precover otherwise,
-            i.e. Monte Carlo datasets are created and the best period from each is
-            measured and reported. In this case just a single column of periods is sent to
-            the output file.
-            """
+            """ sgrec ("single gaussian recovery") is a comparison routine for
+            precover.py. In this case the period is found by measuring
+            velocities via cross-correlation with a sigle gaussian.  The
+            routine operates like precover otherwise, i.e. Monte Carlo
+            datasets are created and the best period from each is measured and
+            reported. In this case just a single column of periods is sent to
+            the output file.  """
 
     # deal with arguments
     parser = argparse.ArgumentParser(description=usage)
 
     # positional
-    parser.add_argument('model',  help='model file from which data are computed')
-    parser.add_argument('data',   help='template data file')
-    parser.add_argument('nmonte', type=int, help='number of monte carlo datasets')
-    parser.add_argument('flow',   type=float, help='lowest frequency to search')
-    parser.add_argument('fhigh',  type=float, help='highest frequency to search')
-    parser.add_argument('delta',  type=float, help='number of cycles change over time base per frequency step')
-    parser.add_argument('fwhm',   type=float, help='FWHM of gaussian for cross-correlation (pixels)')
+    parser.add_argument('model', help='model file from which data are computed')
+    parser.add_argument('data', help='template data file')
+    parser.add_argument(
+        'nmonte', type=int, help='number of monte carlo datasets'
+    )
+    parser.add_argument('flow', type=float, help='lowest frequency to search')
+    parser.add_argument('fhigh', type=float, help='highest frequency to search')
+    parser.add_argument(
+        'delta', type=float,
+        help='number of cycles change over time base per frequency step'
+    )
+    parser.add_argument(
+        'fwhm',   type=float,
+        help='FWHM of gaussian for cross-correlation (pixels)'
+    )
     parser.add_argument('ofile', help='ASCII file for output')
 
     args = parser.parse_args()
@@ -36,20 +43,20 @@ def sgrec(args=None):
         print('precover requires just one image in the model file')
         exit(1)
 
-    data   = doppler.Data.rfits(doppler.afits(args.data))
+    data = doppler.Data.rfits(doppler.afits(args.data))
     nmonte = args.nmonte
-    flow   = args.flow
-    fhigh  = args.fhigh
-    delta  = args.delta
-    fwhm   = args.fwhm
-    ofile  = args.ofile
+    flow = args.flow
+    fhigh = args.fhigh
+    delta = args.delta
+    fwhm = args.fwhm
+    ofile = args.ofile
 
     # computations
 
     # first the frequency array
-    tbase  = data.data[0].time.max() - data.data[0].time.min()
-    nfreq  = int((fhigh-flow)*tbase/delta)
-    fs     = np.linspace(flow,fhigh,nfreq)
+    tbase = data.data[0].time.max() - data.data[0].time.min()
+    nfreq = int((fhigh-flow)*tbase/delta)
+    fs = np.linspace(flow,fhigh,nfreq)
 
     # compute data without noise
     doppler.comdat(model, data)
@@ -71,30 +78,30 @@ def sgrec(args=None):
         for nm in xrange(nmonte):
 
             # add noise and accumulate V/R data
-            times  = []
-            vs     = []
-            verrs  = []
+            times = []
+            vs = []
+            verrs = []
             for spectra in data.data:
-                dat  = np.random.normal(spectra.flux, spectra.ferr)
-                vel  = doppler.CKMS*(spectra.wave-model.data[0].wave[0])/model.data[0].wave[0]-model.data[0].gamma[0]
+                dat = np.random.normal(spectra.flux, spectra.ferr)
+                vel = doppler.CKMS*(spectra.wave-model.data[0].wave[0])/model.data[0].wave[0]-model.data[0].gamma[0]
                 wcen = model.data[0].wave
-                gam  = model.data[0].gamma
+                gam = model.data[0].gamma
 
                 for f,e,t,w in zip(dat,spectra.ferr,spectra.time,spectra.wave):
                     xcen, xerr = subs.centroid((len(f)-1)/2., fwhm, f, True, e)
                     icen = int(round(xcen))
                     if icen >=0 and icen < len(w):
                         dw = (w[-1]-w[0])/(len(w)-1)
-                        v  = doppler.CKMS*(w[icen] + (xcen-icen)*dw - wcen)/wcen - gam
+                        v = doppler.CKMS*(w[icen] + (xcen-icen)*dw - wcen)/wcen - gam
                         dv = doppler.CKMS*xerr*dw/wcen
                         vs.append(v)
                         verrs.append(dv)
                         times.append(t)
 
                 l = len(vs)
-                vs     = np.array(vs).reshape((l))
-                verrs  = np.array(verrs).reshape((l))
-                times  = np.array(times).reshape((l))
+                vs = np.array(vs).reshape((l))
+                verrs = np.array(verrs).reshape((l))
+                times = np.array(times).reshape((l))
 
                 # compute periodogram on same set of frequencies as
                 p = pgram.wmls(times, vs, verrs, fs)
