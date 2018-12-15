@@ -7,13 +7,12 @@ from astropy.io import fits
 from trm import doppler
 import copy
 
-def condef(args=None):
-    usage = \
+def comdef(args=None):
     """
     comdef computes the default equivalent to an image.
     """
 
-    parser = argparse.ArgumentParser(description=usage)
+    parser = argparse.ArgumentParser(description=comdef.__doc__)
 
     # positional
     parser.add_argument('map',   help='name of the input map')

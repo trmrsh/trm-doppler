@@ -6,14 +6,13 @@ import numpy as np
 from trm import doppler
 
 def mspruit(args=None):
-    usage = \
-            """
-            Converts a Doppler map produced by Henk Spruit's Doppler tomography
-            package into a trm.doppler Map object which is then written as a FITS
-            file to disk.
-            """
+    """Converts a Doppler map produced by Henk Spruit's Doppler tomography
+    package into a trm.doppler Map object which is then written as a FITS file
+    to disk.
 
-    parser = argparse.ArgumentParser(description=usage)
+    """
+
+    parser = argparse.ArgumentParser(description=mspruit.__doc__)
 
     # positional
     parser.add_argument('map',   help='name of output file for map')

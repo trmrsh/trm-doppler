@@ -8,18 +8,12 @@ import copy
 __all__ = ['comdat',]
 
 def comdat(args=None):
-    """
-    comdat computes the data corresponding to a Doppler map, with the option of
-    adding noise. Use '-h' to see help.
+    """comdat computes the data corresponding to a Doppler map, with the option
+    of adding noise. Use '-h' to see help.
+
     """
 
-    usage = \
-    """
-    comdat computes the data corresponding to a Doppler map, with the option of
-    adding noise.
-    """
-
-    parser = argparse.ArgumentParser(description=usage)
+    parser = argparse.ArgumentParser(description=comdat.__doc__)
 
     # positional
     parser.add_argument('map',   help='name of the input map')

@@ -5,14 +5,17 @@ from astropy.io import fits
 from trm import doppler
 
 def makedata(args=None):
-    usage = \
+    """makedata creates a blank data file that can be used as a template for
+    creating data files, e.g. using comdat. Like makemap it is driven by a
+    configuration file. Use the -w option to write out an example config file
+    to start from. config files must end in ".cfg"
+
     """
-    makedata creates a blank data file that can be used as a template for
-    creating data files, e.g. using comdat. Like makemap it is driven by
-    a configuration file. Use the -w option to write out an example config
-    file to start from. config files must end in ".cfg"
-    """
-    parser = argparse.ArgumentParser(description=usage, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser = argparse.ArgumentParser(
+        description=makedata.__doc__,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
 
     # positional
     parser.add_argument('config', help='configuration file name, output if -w is set')

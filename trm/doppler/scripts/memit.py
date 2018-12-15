@@ -4,15 +4,12 @@ import argparse
 import pylab as plt
 from trm import doppler
 
-__all__ = ['memit',]
-
 def memit(args=None):
-    usage = \
-            """
-            memit carries out MEM iterations on an image.
-            """
+    """
+    memit carries out MEM iterations on an image.
+    """
 
-    parser = argparse.ArgumentParser(description=usage)
+    parser = argparse.ArgumentParser(description=memit.__doc__)
 
     # positional
     parser.add_argument('imap',  help='name of the input map')

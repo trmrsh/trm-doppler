@@ -6,10 +6,11 @@ from scipy import linalg
 from trm import doppler
 import copy
 
+__all__ = ['optscl',]
+
 def retarr(data):
-    """
-    Returns data and errors (>0) in a Data
-    as two 1D arrays
+    """Returns data and errors (>0) in a Data as two 1D arrays
+
     """
     dat = np.array([])
     err = np.array([])
@@ -20,13 +21,12 @@ def retarr(data):
     return (dat,err)
 
 def optscl(args=None):
-    usage = \
-            """
-            optscl computes optimum scaling and in useful when starting to get into
-            the right ballpark and thereby save iterations.
-            """
+    """
+    optscl computes optimum scaling and in useful when starting to get into
+    the right ballpark and thereby save iterations.
+    """
 
-    parser = argparse.ArgumentParser(description=usage)
+    parser = argparse.ArgumentParser(description=optscl.__doc__)
 
     # positional
     parser.add_argument('map',   help='name of the input map')

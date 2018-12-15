@@ -6,15 +6,14 @@ from astropy.io import fits
 from trm import doppler
 
 def makegrid(args=None):
-    usage = \
-            """
-            makegrid creates Doppler grids from configuration files to provide starter maps
-            and for testing. Use the -w option to write out an example config file to
-            start from. config files must end in ".cfg".
-            """
+    """makegrid creates Doppler grids from configuration files to provide starter
+    maps and for testing. Use the -w option to write out an example config
+    file to start from. config files must end in ".cfg".
+
+    """
 
     parser = argparse.ArgumentParser(
-        description=usage,
+        description=makegrid.__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 

@@ -6,19 +6,20 @@ from trm import doppler, molly
 from astropy.io import fits
 
 def mol2dopp(args=None):
-    usage = \
-            """
-            mol2dopp reads a single molly file and converts it into a data file
-            suitable for the Python Doppler package. The molly file should
-            be continuum subtracted and cover the line or lines of interest.
-            All spectra should have the same number of pixels.
-            """
+    """mol2dopp reads a single molly file and converts it into a data file
+    suitable for the Python Doppler package. The molly file should be
+    continuum subtracted and cover the line or lines of interest.  All spectra
+    should have the same number of pixels.
 
-    parser = argparse.ArgumentParser(description=usage)
+    """
+
+    parser = argparse.ArgumentParser(description=mol2dopp.__doc__)
 
     # positional
     parser.add_argument('molly', help='name of the molly input file')
-    parser.add_argument('fwhm',  type=float, help='FWHM resolution of data in km/s')
+    parser.add_argument(
+        'fwhm',  type=float,help='FWHM resolution of data in km/s'
+    )
     parser.add_argument('dout',  help='data output file')
 
     # optional

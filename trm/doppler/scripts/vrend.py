@@ -7,13 +7,13 @@ import copy
 from s2plot import *
 
 def vrend(args=None):
+    """vrend uses the s2plot 3D plotting package to provide a volume rendering of
+    a 3D image. This will only work if s2plot and the python extension are
+    installed of course
 
-    usage = \
-            """ vrend uses the s2plot 3D plotting package to provide a volume rendering of
-            a 3D image. This will only work if s2plot and the python extension
-            are installed of course """
+    """
 
-    parser = argparse.ArgumentParser(description=usage)
+    parser = argparse.ArgumentParser(description=vrend.__doc__)
 
     # positional
     parser.add_argument('map', help='name of the input map')

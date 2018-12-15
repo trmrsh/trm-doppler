@@ -1,21 +1,20 @@
 #!/usr/bin/env python
 
-import argparse, os, ConfigParser
+import argparse, os, configparser
 import numpy as np
 from scipy import ndimage
 from astropy.io import fits
 from trm import doppler
 
 def makemap(args=None):
-    usage = \
-            """
-            makemap creates Doppler maps from configuration files to provide starter maps
-            and for testing. Use the -w option to write out an example config file to
-            start from. config files must end in ".cfg".
-            """
+    """makemap creates Doppler maps from configuration files to provide starter
+    maps and for testing. Use the -w option to write out an example config
+    file to start from. config files must end in ".cfg".
+
+    """
 
     parser = argparse.ArgumentParser(
-        description=usage,
+        description=makemap.__doc__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -361,7 +360,7 @@ ein    = +3.0
                   'already exists and will not be overwritten.')
             exit(1)
 
-        config = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
         config.read(doppler.acfg(args.config))
 
         tver   = config.getint('main', 'version')

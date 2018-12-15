@@ -6,17 +6,16 @@ from trm import doppler
 from astropy.io import fits
 
 def svd(args=None):
+    """Singular value decomposition routine. This one generates a FITS file
+    containing all the SVD vectors, each of which is a square image matching
+    the input Grid. It returns this as a 3D array which can be conveniently
+    examined with ds9. For an NxN grid, there are N**2 possible SVD vectors so
+    the array has C-style dimensions (N*N) x N x N = N**4, and one should
+    therefore not go mad with overlay large N. Use is mainly educational.
 
-    usage = \
-            """ Singular value decomposition routine. This one generates a FITS file
-            containing all the SVD vectors, each of which is a square image
-            matching the input Grid. It returns this as a 3D array which can
-            be conveniently examined with ds9. For an NxN grid, there are N**2
-            possible SVD vectors so the array has C-style dimensions (N*N) x N
-            x N = N**4, and one should therefore not go mad with overlay large
-            N. Use is mainly educational.  """
+    """
 
-    parser = argparse.ArgumentParser(description=usage)
+    parser = argparse.ArgumentParser(description=svd.__doc__)
 
     # positional
     parser.add_argument('grid', help='name of the input grid')

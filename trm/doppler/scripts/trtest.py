@@ -8,13 +8,14 @@ from astropy.io import fits
 from trm import doppler
 
 def trtest(args=None):
-    usage = \
-            """ trtest carries out a test of tropus. The idea is to generate random inputs
-            for opus and tropus and compute two quadratic forms that should
-            match. This routine is only of interest for development. The
-            reported numbers should be << 1.  """
+    """trtest carries out a test of tropus. The idea is to generate random inputs
+    for opus and tropus and compute two quadratic forms that should
+    match. This routine is only of interest for development. The reported
+    numbers should be << 1.
 
-    parser = argparse.ArgumentParser(description=usage)
+    """
+
+    parser = argparse.ArgumentParser(description=trtest.__doc__)
 
     # positional
     parser.add_argument('map', help='name of the input map template')

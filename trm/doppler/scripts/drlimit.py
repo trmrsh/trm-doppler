@@ -8,19 +8,13 @@ from trm import doppler
 import copy
 
 def drlimit(args=None):
-    """
-    drlimit limits the dynamic range in an image (which otherwise can
-    cause problems) by raising the lowest value in an image to a
-    user-specified fraction of the maximum.
-    """
-    usage = \
-            """
-            drlimit limits the dynamic range in an image (which otherwise can
-            cause problems) by raising the lowest value in an image to a
-            user-specified fraction of the maximum.
-            """
+    """drlimit limits the dynamic range in an image (which otherwise can cause
+    problems) by raising the lowest value in an image to a user-specified
+    fraction of the maximum.
 
-    parser = argparse.ArgumentParser(description=usage)
+    """
+
+    parser = argparse.ArgumentParser(description=drlimit.__doc__)
 
     # positional
     parser.add_argument('inmap',   help='name of the input map')
