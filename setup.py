@@ -8,7 +8,7 @@ import numpy
 class BuildExt(build_ext):
     def build_extensions(self):
         self.compiler.compiler_so.remove('-Wstrict-prototypes')
-        super(BuildExt, self).build_extensions()
+        super().build_extensions()
 
 library_dirs = []
 include_dirs = []
