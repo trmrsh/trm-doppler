@@ -10,7 +10,7 @@ import numpy as np
 
 # Version number. To be updated
 # if data formats change.
-VERSION = 20181217
+VERSION = 20131210
 
 # FWHM/sigma for a gaussian
 EFAC = 2.354820045
