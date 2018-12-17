@@ -135,8 +135,7 @@ ITNAMES = {
 RITNAMES = {v: k for k, v in ITNAMES.items()}
 
 class Image(object):
-    """
-    This class contains all the information needed to specify a single image,
+    """This class contains all the information needed to specify a single image,
     including the wavelength of the line or lines associated with the image,
     systemic velocities, scaling factors, velocity scales of the image,
     default parameters. 2D images have square pixels in velocity space VXY on
@@ -145,94 +144,119 @@ class Image(object):
 
     The following attributes are set::
 
-      data    : the image data array, 2D or 3D.
+      data : float32 ndarray 
+         the image data array, 2D or 3D.
 
-      itype   : Image type. Possible values PUNIT, NUNIT, PSINE, NSINE,
-                PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2.
-                Control modulation and sign of image. P = +, N = -. UNIT
-                = no modulation (i.e. normal doppler tom), sine, cosine etc
-                allow modulation as sine / cosine of phase. 2 means at twice
-                orbital frequency.
+      itype : int 
+         Image type. Possible values are defined: PUNIT, NUNIT, PSINE, NSINE,
+         PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2.  Control
+         modulation and sign of image. P = +, N = -. UNIT = no modulation
+         (i.e. normal doppler tom), sine, cosine etc allow modulation as sine
+         / cosine of phase. 2 means at twice orbital frequency.
 
-      vxy     : pixel size in Vx-Vy plane, km/s, square.
+      vxy : float
+         pixel size in Vx-Vy plane, km/s, square.
 
-      wave    : array of associated wavelengths (will be an array even if
-                only 1 value)
+      wave : float64 1D array
+         wavelengths associated with the image
 
-      gamma   : array of systemic velocities, one per wavelength
+      gamma : 1D array
+         systemic velocities, one per wavelength, [km/s]
 
-      default : a Default object defining how the default is calculated for
-                mem.
+      default : Default
+         object defining how the default is calculated for MEM
 
-      scale   : scale factors to use if len(wave) > 1 (will still be defined
-                but probably = None otherwise)
+      scale : array or None
+         scale factors to use if len(wave) > 1 (could be None
+         otherwise)
 
-      vz      : km/s in vz direction if data.ndim == 3 (will still be defined
-                but probably = None otherwise)
+      vz : float
+         km/s in vz direction if data.ndim == 3 (will still be defined
+         but could be None otherwise)
 
-      group   : for computing optimum scale factors one needs to group images.
-                e.g. pairs of matching PUNIT / NUNIT, PSINE/ NSINE images need
-                to be scaled by the same factor. Use the group parameter
-                (sequential integers) to define such groups. If not defined,
-                the image will be assumed to be in a group on its own.
+      group : integer
+         for computing optimum scale factors one needs to group images.
+         e.g. pairs of matching PUNIT / NUNIT, PSINE/ NSINE images need to be
+         scaled by the same factor. Use the group parameter (sequential
+         integers) to define such groups. If =0, the image will be
+         assumed to be in a group on its own.
 
-      pgroup  : similar to group, this parameters allows you to link N-/P-
-                pairs together for plots. The idea is that only the difference
-                between such images is of any interest, and this allows you
-                to say which goes with which. Unlike group, this should only
-                be used for opposite pairs.
+      pgroup : integer
+         similar to group, this parameters allows you to link N-/P- pairs
+         together for plots. The idea is that only the difference between such
+         images is of any interest, and this allows you to say which goes with
+         which. Unlike group, this should only be used for opposite pairs.
+
+      wgshdu : bool
+         If True, the wave, gamma and scale value(s) will be stored on disk as
+         a table HDU following the image HDU containing the data. Else they
+         will be stored as WAVE1, WAVE2, ..., GAMMA1, GAMMA2, ..., SCALE1,
+         SCALE2 etc in the header. For > 999 such values, table HDU storage
+         is automatic.
+
     """
 
     def __init__(self, data, itype, vxy, wave, gamma, default, scale=None,
-                 vz=None, group=0, pgroup=0):
-        """
-        Defines an Image. Arguments::
+                 vz=None, group=0, pgroup=0, wgshdu=False):
+        """Defines an Image. Arguments::
 
-         data  : the data array, either 2D or 3D.
+           data : ndarray 
+              the data array, either 2D or 3D.
 
-         itype : Image type. Possible values PUNIT, NUNIT, PSINE, NSINE,
-                 PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2, NCOSINE2.
-                 Control modulation and sign of image. P = +, N = -. UNIT
-                 = no modulation (i.e. normal doppler tom), sine, cosine etc
-                 allow modulation as sine / cosine of phase. 2 means at twice
-                 orbital frequency.
+           itype : int
+              Image type. Possible values have defined names: PUNIT, NUNIT,
+              PSINE, NSINE, PCOSINE, NCOSINE, PSINE2, NSINE2, PCOSINE2,
+              NCOSINE2.  Control modulation and sign of image. P = +, N =
+              -. UNIT = no modulation (i.e. normal doppler tom), sine, cosine
+              etc allow modulation as sine / cosine of phase. 2 means at twice
+              orbital frequency.
 
-          vxy : the pixel size in the X-Y plane, same in both X and Y, units
-                km/s.
+           vxy : float
+              the pixel size in the X-Y plane, same in both X and Y, [km/s].
 
-          wave : the wavelength or wavelengths associated with this Image. The
-                 same image can represent multiple lines, in which case a set
-                 of scale factors must be supplied as well. Can either be a
-                 single float or an array.
+           wave : float | array
+               the wavelength(s) associated with this Image. The same image
+               can represent multiple lines, in which case a set of scale
+               factors must be supplied as well. Can either be a single float
+               or an array. Units must match whatever units are used for
+               wavelengths in the data files.
 
-          gamma : systemic velocity or velocities for each lines, km/s
+           gamma : float | array
+               systemic velocity(ies) for the line(s) [km/s]
 
+           default : Default
+               how to calculate the default image during MEM iterations.
+               This should be a Default object.
 
-          default : how to calculate the default image during mem iterations. This
-                    should be a Default object.
+           scale : array | None
+               if there are multiple lines modelled by this Image (e.g. the
+               Balmer series) then you must supply scaling factors to be
+               applied for each one as well.  scale must have the same
+               dimension as wave in this case. If there is only one line, it
+               will set equal to 1 (an array)
 
-          scale : if there are multiple lines modelled by this Image (e.g. the
-                  Balmer series) then you must supply scaling factors to be
-                  applied for each one as well.  scale must have the same
-                  dimension as wave in this case. If there is only one line,
-                  it will set equal to 1 (an array) 
+           vz : float | None
+               if data is 3D then you must supply a z-velocity spacing [km/s].
 
-          vz : if data is 3D then you must supply a z-velocity spacing in
-               km/s.
+           group : int
+               for computing optimum scale factors one needs to group
+               images. e.g.  pairs of matching PUNIT / NUNIT, PSINE/ NSINE
+               images need to be scaled by the same factor. Use the group
+               parameter (sequential positive integers) to define such
+               groups. If group=0, the image will be assumed to be in a group
+               on its own.
 
-          group : for computing optimum scale factors one needs to group
-                  images. e.g.  pairs of matching PUNIT / NUNIT, PSINE/
-                  NSINE images need to be scaled by the same factor. Use the
-                  group parameter (sequential positive integers) to define
-                  such groups. If group=0, the image will be assumed to be in
-                  a group on its own.
+           pgroup : int
+               similar to group, this parameters allows you to link N-/P-
+               pairs together for plots. The idea is that only the difference
+               between such images is of any interest, and this allows you to
+               say which goes with which. Unlike group, this should only be
+               used for opposite pairs.
 
-          pgroup : similar to group, this parameters allows you to link N-/P-
-                pairs together for plots. The idea is that only the difference
-                between such images is of any interest, and this allows you
-                to say which goes with which. Unlike group, this should only
-                be used for opposite pairs.
-
+           wgshdu : bool
+               If True, the wave, gamma and scale values will be stored in
+               a binary HDU following the image, otherwise they will be 
+               stored in the header connected to the image.
         """
         self.data = np.asarray(data, dtype=np.float32)
         if self.data.ndim < 2 or self.data.ndim > 3:
@@ -250,19 +274,23 @@ class Image(object):
         if self.wave.ndim == 0:
             self.wave = np.array([float(wave),])
         elif self.wave.ndim > 1:
-            raise DopplerError('Image.__init__: wave can at most' +
-                               ' be one dimensional')
+            raise DopplerError(
+                'Image.__init__: wave can at most be one dimensional'
+            )
+
         # systemic velocities
         self.gamma = np.asarray(gamma, dtype=np.float32)
         if self.gamma.ndim == 0:
             self.gamma = np.array([float(gamma),],dtype=np.float32)
         elif self.gamma.ndim > 1:
-            raise DopplerError('Image.__init__: gamma can at most' +
-                               ' be one dimensional')
+            raise DopplerError(
+                'Image.__init__: gamma can at most be one dimensional'
+            )
 
         if len(self.gamma) != len(self.wave):
-            raise DopplerError('Image.__init__: gamma and wave must' +
-                               ' match in size')
+            raise DopplerError(
+                'Image.__init__: gamma and wave must match in size'
+            )
 
         # default
         if not isinstance(default, Default):
@@ -270,8 +298,10 @@ class Image(object):
 
         if (default.option == Default.GAUSS2D and data.ndim == 3) or \
                 (default.option == Default.GAUSS3D and data.ndim == 2):
-            raise DopplerError('Image.__init__: default option must match'
-                               ' image dimension, e.g. GAUSS2D for 2D images')
+            raise DopplerError(
+                'Image.__init__: default option must match'
+                ' image dimension, e.g. GAUSS2D for 2D images'
+            )
 
         self.default = default
 
@@ -286,35 +316,48 @@ class Image(object):
         # scale factors
         if isinstance(scale, np.ndarray):
             if scale.ndim > 1:
-                raise DopplerError('Image.__init__: scale can at most' +
-                                   ' be one dimensional')
+                raise DopplerError(
+                    'Image.__init__: scale can at most' +
+                    ' be one dimensional'
+                )
             self.scale = scale
 
             if len(self.scale) != len(self.wave):
-                raise DopplerError('Image.__init__: scale and wave must' +
-                                   ' match in size')
+                raise DopplerError(
+                    'Image.__init__: scale and wave must' +
+                    ' match in size'
+                )
 
         elif isinstance(scale, collections.Iterable):
             self.scale = np.array(scale)
             if len(self.scale) != len(self.wave):
-                raise DopplerError('Image.__init__: scale and wave must' +
-                                   ' match in size')
+                raise DopplerError(
+                    'Image.__init__: scale and wave must' +
+                    ' match in size'
+                )
 
         elif len(self.wave) > 1:
-            raise DopplerError('Image.__init__: scale must be an array' +
-                               ' if wave is')
+            raise DopplerError(
+                'Image.__init__: scale must be an array' +
+                ' if wave is'
+            )
         else:
             self.scale = np.array([1.,])
 
+        self.wgshdu = wgshdu
+
     def toHDU(self, next):
         """
-        Returns the Image as an astropy.io.fits.ImageHDU. The map is held as
-        the main array. All the rest of the information is stored in the
-        header.
+        Returns the Image as an astropy.io.fits.ImageHDU or as an
+        astropy.io.fits.ImageHDU and an astropy.io.fits.BinTableHDU.
+        The latter is when the wave / gamma / scale values are stored
+        as a binary table. In each case these are returned as a tuple
+        so they can be added to a list of HDUs.
 
         Arguments::
 
-          next : a number to append to the EXTNAME header extension names.
+            next : int
+               a number to append to the EXTNAME header extension names.
         """
 
         # create header
@@ -326,14 +369,26 @@ class Image(object):
         if self.data.ndim == 3:
             head['VZ']  = (self.vz, 'Vz pixel size, km/s')
         head['NWAVE']  = (len(self.wave), 'Number of wavelengths')
-        n = 1
-        # truncate the name to 4 letters to allow up to 9999
-        # wavelengths.
-        for w, g, s in zip(self.wave,self.gamma,self.scale):
-            head['WAVE' + str(n)] = (w, 'Central wavelength')
-            head['GAMM' + str(n)] = (g, 'Systemic velocity, km/s')
-            head['SCAL' + str(n)] = (s, 'Scaling factor')
-            n += 1
+
+        if not self.wgshdu and len(self.wave) < 1000:
+            # write wave, gamma, scale values to the header
+            n = 1
+            for w, g, s in zip(self.wave,self.gamma,self.scale):
+                head['WAVE' + str(n)] = (w, 'Central wavelength')
+                head['GAMMA' + str(n)] = (g, 'Systemic velocity, km/s')
+                head['SCALE' + str(n)] = (s, 'Scaling factor')
+                n += 1
+            inhead = True
+
+        else:
+            # write wave, gamma, scale values to table HDU
+            c1 = fits.Column(name='WAVE', array=self.wave, format='D')
+            c2 = fits.Column(name='GAMMA', array=self.gamma, format='E')
+            c3 = fits.Column(name='SCALE', array=self.scale, format='E')
+            thead = fits.Header()
+            thead['EXTNAME'] = 'Table' + str(next)
+            thdu = fits.BinTableHDU.from_columns([c1, c2, c3], thead)
+            inhead = False
 
         head['DEFAULT'] = (
             Default.DNAMES[self.default.option],'Default option')
@@ -376,25 +431,41 @@ class Image(object):
         head['CUNIT2'] = 'km/s'
         if self.data.ndim == 3:
             head['CUNIT3'] = 'km/s'
+        ihdu = fits.ImageHDU(self.data,head)
 
-        # ok return with ImageHDU
-        return fits.ImageHDU(self.data,head)
+        if inhead:
+            # ok return with ImageHDU
+            return (ihdu,)
+        else:
+            # ok return with ImageHDU and BinTableHDU
+            return (ihdu,thdu)
 
     @classmethod
-    def fromHDU(cls, hdu):
+    def fromHDU(cls, hdui, hdut=None):
         """
-        Create an Image given an HDU of the correct nature
+        Create an Image given an HDU or HDUs of the correct nature.
+        hdui must be an image HDU containing the data for the image
+        along with some associated header items. It may contain
+        headers with names like WAVE1, GAMMA1, SCALE1, WAVE2, GAMMA2,
+        etc, but if it doesn't, these need to be supplied as a table
+        HDU (hdut) with columns called WAVE, GAMMA and SCALE.
         """
 
-        data = hdu.data
-        head = hdu.header
+        data = hdui.data
+        head = hdui.header
         if 'VXY' not in head or 'NWAVE' not in head \
-                or 'WAVE1' not in head or 'GAMM1' not in head \
-                or 'DEFAULT' not in head or 'BIAS' not in head \
-                or 'ITYPE' not in head:
-            raise DopplerError('Image.fromHDU: one or more of' +
-                               ' VXY, NWAVE, WAVE1, GAMM1, ' +
-                               'DEFAULT, BIAS, ITYPE not found in HDU header')
+           or 'DEFAULT' not in head or 'BIAS' not in head \
+           or 'ITYPE' not in head:
+            raise DopplerError(
+                'Image.fromHDU: one or more of VXY, NWAVE, DEFAULT, BIAS,'
+                ' ITYPE not found in HDU header'
+            )
+
+        if ('WAVE1' not in head or 'GAMMA1' not in head) and \
+           (hdut is None or not isinstance(hdut,fits.BinTableHDU)):
+            raise DopplerError(
+                'Image.fromHDU: WAVE1 and/or GAMMA1 not found and no valid BinTableHDU'
+            )
 
         # effectively reverse usual dictionary look up
         itype = RITNAMES[head['ITYPE']]
@@ -405,17 +476,29 @@ class Image(object):
         else:
             vz = None
 
-        nwave = head['NWAVE']
-        wave  = np.empty((nwave))
-        gamma = np.empty((nwave))
-        scale = np.empty((nwave))
-        for n in range(nwave):
-            wave[n]  = head['WAVE' + str(n+1)]
-            gamma[n] = head['GAMM' + str(n+1)]
-            if nwave == 1:
-                scale[n] = 1.0
-            else:
-                scale[n] = head['SCAL' + str(n+1)]
+        if 'GAMMA1' in head:
+            # read from image header
+            nwave = head['NWAVE']
+            wave  = np.empty((nwave))
+            gamma = np.empty((nwave))
+            scale = np.empty((nwave))
+            for n in range(nwave):
+                wave[n]  = head['WAVE' + str(n+1)]
+                gamma[n] = head['GAMMA' + str(n+1)]
+                if nwave == 1:
+                    scale[n] = 1.0
+                else:
+                    scale[n] = head['SCALE' + str(n+1)]
+            wgshdu = False
+
+        else:
+
+            # read from table HDU
+            table = hdut.data
+            wave = table['WAVE']
+            gamma = table['GAMMA']
+            scale = table['SCALE']
+            wgshdu = True
 
         if head['DEFAULT'] == 'UNIFORM':
             default = Default.uniform(head['BIAS'])
@@ -430,14 +513,17 @@ class Image(object):
             default = Default.gauss3d(head['BIAS'], head['FWHMXY'],
                                       head['FWHMZ'])
         else:
-            raise DopplerError('Image.fromHDU: unrecognised default'
-                               ' option = ' + head['DEFAULT'])
+            raise DopplerError(
+                'Image.fromHDU: unrecognised default option = ' + head['DEFAULT']
+            )
 
         group  = head['GROUP']
         pgroup = head['PGROUP']
 
-        return cls(data, itype, vxy, wave, gamma, default, scale, vz,
-                   group, pgroup)
+        return cls(
+            data, itype, vxy, wave, gamma, default, scale, vz,
+            group, pgroup, wgshdu
+        )
 
     def isPositive(self):
         """
@@ -541,9 +627,9 @@ class Map(object):
             self.head.add_comment(
                 'Each line requires specification of a laboratory wavelength (WAVE) and')
             self.head.add_comment(
-                'systemic velocity (GAMM). If there is more than one line, then each')
+                'systemic velocity (GAMMA). If there is more than one line, then each')
             self.head.add_comment(
-                'requires a scaling factor (SCAL). Again these are contained in the HDU.')
+                'requires a scaling factor (SCALE). Again these are contained in the HDU.')
             self.head.add_comment(
                 'Each line also requires information on how to construct a default image')
             self.head.add_comment(
@@ -578,14 +664,16 @@ class Map(object):
         try:
             for i, image in enumerate(data):
                 if not isinstance(image, Image):
-                    raise DopplerError('Map.__init__: element ' + str(i) +
-                                       ' of map is not an Image.')
-
+                    raise DopplerError(
+                        'Map.__init__: element ' + str(i) + ' of map is not an Image.'
+                    )
             self.data = data
+
         except TypeError as err:
             if not isinstance(data, Image):
-                raise DopplerError('Map.__init__: data must be an' +
-                                   ' Image or a list of Images')
+                raise DopplerError(
+                    'Map.__init__: data must be an Image or a list of Images'
+                )
             self.data = [data,]
 
         self.tzero  = tzero
@@ -608,11 +696,11 @@ class Map(object):
         head = hdul[0].header
 
         # Extract standard values that must be present
-        tzero  = head['TZERO']
+        tzero = head['TZERO']
         period = head['PERIOD']
-        quad   = head['QUAD']
-        vfine  = head['VFINE']
-        sfac   = head['SFAC']
+        quad = head['QUAD']
+        vfine = head['VFINE']
+        sfac = head['SFAC']
 
         # Remove from the header
         del head['TZERO']
@@ -623,8 +711,10 @@ class Map(object):
 
         # Now the data
         data = []
-        for hdu in hdul[1:]:
-            data.append(Image.fromHDU(hdu))
+        for n, ihdu in enumerate(hdul[1:]):
+            if isinstance(ihdu, fits.ImageHDU):
+                thdu = hdul[n+2] if n+2 < len(hdul) else None
+                data.append(Image.fromHDU(ihdu,thdu))
 
         # OK, now make the map
         return cls(head, data, tzero, period, quad, vfine, sfac)
@@ -642,7 +732,7 @@ class Map(object):
         head['SFAC']   = (self.sfac, 'Global scaling factor')
         hdul  = [fits.PrimaryHDU(header=head),]
         for i, image in enumerate(self.data):
-            hdul.append(image.toHDU(i+1))
+            hdul += image.toHDU(i+1)
         hdulist = fits.HDUList(hdul)
         hdulist.writeto(fname, overwrite=overwrite)
 

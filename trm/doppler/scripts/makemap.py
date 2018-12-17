@@ -113,14 +113,12 @@ OBJECT = SS433
 #          useful.
 # fwhmxy : if default=GAUSS2D or GAUSS3D, this is FWHM, km/s,to use in X-Y plane
 # fwhmz  : if default=GAUSS3D, this is FWHM, km/s, to use in Z
-# wave1  : wavelength of first line associated with the image
-# gamma1  : systemic velocity, km/s, of first line associated with the image
-# scale1 : scale factor of first line associated with the image [ignored
+# waves  : list of wavelengths associated with the image
+# gammas : list of systemic velocities [km/s] associated with the image
+# scales : list of scale factors associated with the image [ignored
 #          if only one wavelength]
-# wave2  : wavelength of second line associated with the image
-# gamma2 : systemic velocity, km/s, of second line associated with the image
-# scale2 : scale factor of second line associated with the image
-# wave3  : ... repeat as desired ... must be sequential, i.e. not wave1, wave2, wave4
+# wgshdu : True or False for whether to store waves, gammas, scales in a Table
+#          HDU (or the image header)
 
 # this image is a standard one applying to 2 lines
 [image1]
@@ -134,12 +132,10 @@ default = GAUSS2D
 bias    = 1.
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 486.1
-gamm1   = 100.
-scal1   = 1.0
-wave2   = 434.0
-gamma2   = 120.
-scale2   = 0.6
+waves   = 486.1 434.0
+gammas  = 100. 120.
+scales  = 1.0 0.6
+wgshdu  = True
 
 # The next set of images define an image that has negative regions near the
 # line centre as well as a modulated component.
@@ -156,8 +152,9 @@ default = GAUSS2D
 bias    = 1.
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 468.6
-gamma1  = 100.
+waves   = 468.6
+gammas  = 100.
+wgshdu  = False
 
 [image3]
 itype   = NUNIT
@@ -172,8 +169,9 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 468.6
-gamma1  = 100.
+waves   = 468.6
+gammas  = 100.
+wgshdu  = False
 
 [image4]
 itype   = PSINE
@@ -188,8 +186,9 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 468.6
-gamma1  = 100.
+waves   = 468.6
+gammas  = 100.
+wgshdu  = False
 
 [image5]
 itype   = NSINE
@@ -204,8 +203,9 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 468.6
-gamma1  = 100.
+waves   = 468.6
+gammas  = 100.
+wgshdu  = False
 
 [image6]
 itype   = PCOSINE
@@ -220,8 +220,9 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 468.6
-gamma1  = 100.
+waves   = 468.6
+gammas  = 100.
+wgshdu  = False
 
 [image7]
 itype   = NCOSINE
@@ -236,8 +237,9 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
-wave1   = 468.6
-gamma1  = 100.
+waves   = 468.6
+gammas  = 100.
+wgshdu  = False
 
 # The next sections are entirely optional and should normally be removed if
 # you are starting a real map since they are really aimed at creating
@@ -353,6 +355,7 @@ ein    = +3.0
 """
         with open(doppler.acfg(args.config),'w') as fout:
             fout.write(config.format(doppler.VERSION))
+
     else:
 
         if not args.overwrite and os.path.exists(doppler.afits(args.map)):
@@ -459,24 +462,14 @@ ein    = +3.0
             else:
                 group = 0
 
-            if config.has_option(img, 'wave2'):
-                wave, gamma, scale = [], [], []
-                nwave = 1
-                while True:
-                    w = 'wave' + str(nwave)
-                    if not config.has_option(img,w):
-                        break
-                    g = 'gamma' + str(nwave)
-                    s = 'scale' + str(nwave)
-                    wave.append(config.getfloat(img,w))
-                    gamma.append(config.getfloat(img,g))
-                    scale.append(config.getfloat(img,s))
-                    nwave += 1
-
+            wave = [float(f) for f in config.get(img,'waves').split()]
+            gamma = [float(f) for f in config.get(img,'gammas').split()]
+            if len(wave) > 1:
+                scale = [float(f) for f in config.get(img,'scales').split()]
             else:
-                wave = config.getfloat(img,'wave1')
-                gamma = config.getfloat(img,'gamma1')
                 scale = None
+
+            wgshdu = config.getboolean(img,'wgshdu')
 
             # look for spots to add
             sroot = 'spot' + str(nimage) + '_'
@@ -579,8 +572,10 @@ ein    = +3.0
 
             # create and store image
             images.append(
-                doppler.Image(array, itype, vxy, wave, gamma,
-                              default, scale, vz, group)
+                doppler.Image(
+                    array, itype, vxy, wave, gamma,
+                    default, scale, vz, group, wgshdu=wgshdu
+                )
             )
             print(
                 'Created image number',nimage,', wavelength(s) =',wave,
