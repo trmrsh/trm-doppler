@@ -2577,6 +2577,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
         delete[] wave;
         delete[] ferr;
         delete[] flux;
+        delete[] image;
         return NULL;
     }
 
@@ -2605,8 +2606,10 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     PyObject *map = NULL, *data = NULL;
     int niter;
     float caim, tlim=1.e-4, rmax=0.2;
-    static const char *kwlist[] = {"map", "data", "niter", "caim",
-                                   "tlim", "rmax", NULL};
+    static const char *kwlist[] = {
+        "map", "data", "niter", "caim",
+        "tlim", "rmax", NULL
+    };
 
     if(!PyArg_ParseTupleAndKeywords(args, kwords, "OOif|ff", (char**)kwlist,
                                     &map, &data, &niter, &caim, &tlim, &rmax))

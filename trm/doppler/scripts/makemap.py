@@ -118,7 +118,7 @@ OBJECT = SS433
 # scales : list of scale factors associated with the image [ignored
 #          if only one wavelength]
 # wgshdu : True or False for whether to store waves, gammas, scales in a Table
-#          HDU (or the image header)
+#          HDU (or the image header). If missing, defaults to False.
 
 # this image is a standard one applying to 2 lines
 [image1]
@@ -154,7 +154,6 @@ fwhmxy  = 500.
 fwhmz   = 0.
 waves   = 468.6
 gammas  = 100.
-wgshdu  = False
 
 [image3]
 itype   = NUNIT
@@ -171,7 +170,6 @@ fwhmxy  = 500.
 fwhmz   = 0.
 waves   = 468.6
 gammas  = 100.
-wgshdu  = False
 
 [image4]
 itype   = PSINE
@@ -188,7 +186,6 @@ fwhmxy  = 500.
 fwhmz   = 0.
 waves   = 468.6
 gammas  = 100.
-wgshdu  = False
 
 [image5]
 itype   = NSINE
@@ -205,7 +202,6 @@ fwhmxy  = 500.
 fwhmz   = 0.
 waves   = 468.6
 gammas  = 100.
-wgshdu  = False
 
 [image6]
 itype   = PCOSINE
@@ -222,7 +218,6 @@ fwhmxy  = 500.
 fwhmz   = 0.
 waves   = 468.6
 gammas  = 100.
-wgshdu  = False
 
 [image7]
 itype   = NCOSINE
@@ -239,7 +234,6 @@ fwhmxy  = 500.
 fwhmz   = 0.
 waves   = 468.6
 gammas  = 100.
-wgshdu  = False
 
 # The next sections are entirely optional and should normally be removed if
 # you are starting a real map since they are really aimed at creating
@@ -469,7 +463,7 @@ ein    = +3.0
             else:
                 scale = None
 
-            wgshdu = config.getboolean(img,'wgshdu')
+            wgshdu = config.getboolean(img,'wgshdu',fallback=False)
 
             # look for spots to add
             sroot = 'spot' + str(nimage) + '_'
