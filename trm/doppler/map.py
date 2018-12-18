@@ -5,10 +5,11 @@ Defines the classes needed to represent Doppler maps.
 import collections
 import numpy as np
 from astropy.io import fits
+from scipy.interpolate import RegularGridInterpolator
 
 from .core import *
 
-class Default (object):
+class Default:
     """
     Class defining the way in which the default image is computed.
     Main attribute is called 'option' which can have the following values:
@@ -134,7 +135,7 @@ ITNAMES = {
 # inverted version
 RITNAMES = {v: k for k, v in ITNAMES.items()}
 
-class Image(object):
+class Image:
     """This class contains all the information needed to specify a single image,
     including the wavelength of the line or lines associated with the image,
     systemic velocities, scaling factors, velocity scales of the image,
@@ -531,6 +532,71 @@ class Image(object):
         """
         return (self.data > 0.).all()
 
+    def csymm(self, vx0, vy0, method='median'):
+        """Returns a circularly symmetric version of an image around the
+        z-axis.  It does so by computing a radial profile centred on
+        vx0, vy0. The radial profile is sampled on half the pixel size
+        of the image in the vx-vy plane. Only defined for 2D at the moment.
+        The radial profile is built by taking the meadian or mean of all values
+        sampled from a circle centred on vx0,vy0.
+        """
+
+        if self.data.ndim == 2:
+            # compute maximum velocity from centre to the corners
+            ny,nx = self.data.shape
+            vxy = self.vxy
+            vr = nx*vxy/2
+            vmax = np.sqrt((vr+abs(vx0))**2+(vr+abs(vy0))**2)
+
+            # make array representing x,y positions of pixels
+            x1, x2 = -vxy*(nx-1)/2,vxy*(nx-1)/2
+            x = np.linspace(x1,x2,nx)
+
+            y1, y2 = -vxy*(ny-1)/2,vxy*(ny-1)/2
+            y = np.linspace(y1,y2,ny)
+
+            # create interpolator. extrapolate off edges
+            interp = RegularGridInterpolator((y,x),self.data,bounds_error=False,fill_value=None)
+
+            # array of velocities for the radial profile
+            varr = np.linspace(0,vmax,int(vmax/(self.vxy/2)+1))
+            prof = np.empty_like(varr)
+            for n, v in enumerate(varr):
+                # number of points around circle and the angles
+                ntheta = max(8,int(2*np.pi*v/(self.vxy/2)+1))
+                thetas = np.linspace(0,2*np.pi*(1-1/ntheta),ntheta)
+
+                # make arrays of points around a circle, but select
+                # only those points within the image grid so they can
+                # be interpolated. This should limit the effect of
+                # extrapolated values
+                vxs = vx0 + v*np.cos(thetas)
+                vys = vy0 + v*np.sin(thetas)
+                ok = (vxs > -vr-vxy) & (vxs < vr+vxy) & (vys > -vr-vxy) & (vys < vr+vxy)
+                pts = np.column_stack((vys[ok],vxs[ok]))
+                vals = interp(pts)
+
+                if method == 'median':
+                    prof[n] = np.median(vals) if len(vals) else 0
+                else:
+                    raise NotImplementedError('Have not implemented method =',method)
+
+            # at this point we have an array of radii (in velocity) measured from
+            # vx0, vy0 (varr) and the profile values at those radii (prof). Now want
+            # to create an array with this imposed as the profile. Do so by calculating
+            # the
+            X,Y = np.meshgrid(x,y)
+            R = np.sqrt((X-vx0)**2+(Y-vy0)**2)
+            nvals = np.interp(R.flat,varr,prof).reshape((ny,nx))
+
+            return Image(
+                nvals, self.itype, self.vxy, self.wave, self.gamma, self.default,
+                self.scale, self.vz, self.group, self.pgroup, self.wgshdu
+            )
+
+        else:
+            raise NotImplementedError('Have not implemented 3D version')
+
     def __repr__(self):
         return \
             'Image(data=' + repr(self.data) + ', itype=' + \
@@ -541,7 +607,8 @@ class Image(object):
             ', group=' + repr(self.group) + \
             ', pgroup=' + repr(self.pgroup) + ')'
 
-class Map(object):
+class Map:
+
     """
     This class represents a complete Doppler image. Features include:
     (1) different maps for different lines, (2) the same map
@@ -744,6 +811,19 @@ class Map(object):
             if not image.isPositive():
                 return False
         return True
+
+    def csymm(self, vx0, vy0):
+        """
+        Computes circularly symmetric versions of all the images in the Map
+        centred on vx0, vy0. Returns a new Map
+        """
+        nimages = []
+        for image in self.data:
+            nimages.append(image.csymm(vx0,vy0))
+
+        return Map(
+            self.head, nimages, self.tzero, self.period, self.quad, self.vfine, self.sfac
+        )
 
     def __repr__(self):
         return 'Map(head=' + repr(self.head) + \
