@@ -28,28 +28,31 @@ should facilitate the initial data import stage.
 Multiple datasets
 -----------------
 
-trm.doppler loads data from a single FITS file, but this can be constructed
-from many independent datasets. To take a slightly artificial example,
-consider mapping data covering Hbeta on one arm of a spectrograph and Halpha
-on the other. These could have different resolutions, pixel scales,
-etc. Normally one would separately map each line, but suppose the
-signal-to-noise ratio was poor and you wanted to use a single image to model
-both lines, perhaps with a different scale for each. trm.doppler can cope with
-this case, and you could also add in datasets from different instruments,
-small snatches of data etc. The only restriction now is that the spectra of
-any one dataset must have the same number of pixels so that the data can be
-passed as a regular 2D array, 1 spectrum per row. Different datasets however
-can have differing numbers of pixels. (*new*)
+trm.doppler loads data from a single FITS file, but this can be
+constructed from many independent datasets. To take a slightly
+artificial example, consider mapping data covering Hbeta on one arm of
+a spectrograph and Halpha on the other. These could have different
+resolutions, pixel scales, etc. Normally one would separately map each
+line, but suppose the signal-to-noise ratio was poor and you wanted to
+use a single image to model both lines, perhaps with a different flux
+scale for each. trm.doppler can cope with this case, and you could
+also add in datasets from different instruments, small snatches of
+data, etc. The only restriction now is that the spectra of any one
+dataset must have the same number of pixels so that the data can be
+passed as a regular 2D array, 1 spectrum per row. Different datasets
+however can have differing numbers of pixels. (*new*)
 
 Raw wavelength scales
 ---------------------
 
-To use the F77 code one had to interpolate the data onto a logarithmic scale
-giving a uniform velocity step per pixel. The same scale was required of all
-spectra. trm.doppler has done away with this so that for each dataset one now
-passes includes an array of wavelengths with the same shape as the fluxes and
-flux uncertainties. This means that one can use the spectra in pretty much the
-raw format they had at the telescope. (*new*)
+To use the F77 code one had to interpolate the data onto a logarithmic
+scale giving a uniform velocity step per pixel. The same scale was
+required of all spectra. trm.doppler has done away with this so that
+for each dataset one now passes an array of wavelengths with the same
+2D shape as the fluxes and flux uncertainties. This means that one can
+use the spectra in pretty much the raw format they had at the
+telescope, although one should still remove a fit to the continuum
+first. (*new*)
 
 3D
 --

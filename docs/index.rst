@@ -13,7 +13,7 @@ perhaps, a Python implementation allows easy access to the results with the
 full power of Python's analysis and graphics capabilities at hand. A core
 principle of trm.doppler is the use of the familiar FITS format for all input
 and output (apart from some ASCII configuration files). This should make it
-relatively easy  to access.
+relatively easy to access.
 
 Contents:
 
