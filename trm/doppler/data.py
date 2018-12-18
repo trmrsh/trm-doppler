@@ -279,6 +279,23 @@ class Data(object):
             n += spectra.flux.size
         return n
 
+def chisquared(data, model):
+    """
+    Calculates the chi**2 between two Data objects, 'data' and
+    'model'. 'data' sets the uncertainties, including those which
+    will be skipped (<= 0).
+
+    Returns (chisq, ndata), which are the chi**2 value and number of
+    data points (excluding masked ones)
+    """
+    chisq = 0.
+    ndata = 0
+    for mspec, dspec in zip(model.data, data.data):
+        ok = dspec.ferr > 0.
+        chisq += (((dspec.flux[ok]-mspec.flux[ok])/dspec.ferr[ok])**2).sum()
+        ndata += len(dspec.flux[ok])
+    return (chisq, ndata)
+
 if __name__ == '__main__':
 
     # a header
