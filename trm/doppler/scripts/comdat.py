@@ -45,13 +45,7 @@ def comdat(args=None):
         for spectra in dtemp.data:
             spectra.flux = np.random.normal(spectra.flux, np.abs(spectra.ferr))
     else:
-        chisq = 0.
-        ndata = 0
-        for cspec, dspec in zip(dtemp.data, dcopy.data):
-            ok = dspec.ferr > 0.
-            chisq += (((dspec.flux[ok]-cspec.flux[ok])/dspec.ferr[ok])**2).sum()
-            ndata += cspec.flux.size
-
+        chisq, ndata = doppler.chisquared(dcopy, dtemp)
         print('Chi**2 = ',chisq,', chi**2/N =',chisq/ndata,', N =',ndata)
 
     # Write to a fits file
