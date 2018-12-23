@@ -1288,7 +1288,7 @@ namespace Dopp {
  */
 void Mem::opus(const int j, const int k){
 
-    std::cerr << "    OPUS " << j+1 << " ---> " << k+1 << std::endl;
+    std::cerr << "    OPUS " << j << " ---> " << k << std::endl;
 
     op(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype,
@@ -1301,7 +1301,7 @@ void Mem::opus(const int j, const int k){
  */
 void Mem::tropus(const int k, const int j){
 
-    std::cerr << "  TROPUS " << j+1 << " <--- " << k+1 << std::endl;
+    std::cerr << "  TROPUS " << j << " <--- " << k << std::endl;
 
     tr(Mem::Gbl::st+Mem::Gbl::kb[j], Dopp::nxyz, Dopp::vxy, Dopp::vz,
        Dopp::wavel, Dopp::gamma, Dopp::scale, Dopp::itype,
@@ -2685,14 +2685,13 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
         return NULL;
     }
 
-    // get errors into right form. Need to count number
+    // get errors into right form, namely each sigma is transformed
+    // to 2/sigma**2/ndpix
     float *eptr = Mem::Gbl::st + Mem::Gbl::kb[21];
-    //    size_t napix = 0;
-    //    for(size_t np = 0; np<ndpix; np++)
-    //        if(eptr[np] > 0.) napix++;
 
     // Divide by ndpix even when there are masked data points
     // dividing by napix causes problems with bootstrapping.
+    // Ones with non-positive errors are ignored.
     for(size_t np = 0; np<ndpix; np++)
         if(eptr[np] > 0.) eptr[np] = 2./std::pow(eptr[np],2)/ndpix;
 
@@ -2700,8 +2699,6 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
     int mode = 10;
     for(size_t nd=0; nd<Dopp::def.size(); nd++)
         if(Dopp::def[nd] > 1 || Dopp::bias[nd] != 1.) mode = 30;
-
-    std::cerr << "mode = " << mode << std::endl;
 
     // release the GIL
     Py_BEGIN_ALLOW_THREADS
@@ -2741,7 +2738,11 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
             }
         }
 
-        Mem::memprm(mode,20,caim,rmax,1.,acc,c,test,cnew,s,rnew,snew,sumf);
+        // level=20 or 42 for verbose
+        // add 3 to mode to get smaller number of search
+        // directions
+        mode += 3;
+        Mem::memprm(mode,42,caim,rmax,1.,acc,c,test,cnew,s,rnew,snew,sumf);
         if(test < tlim && c <= caim) break;
     }
 

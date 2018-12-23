@@ -25,8 +25,8 @@ def memit(args=None):
     args = parser.parse_args()
 
     # load map and data
-    dmap = doppler.Map.rfits(doppler.afits(args.imap))
-    data = doppler.Data.rfits(doppler.afits(args.data))
+    dmap = doppler.map.Map.rfits(doppler.afits(args.imap))
+    data = doppler.data.Data.rfits(doppler.afits(args.data))
 
     # mem iterations
     doppler.memit(dmap, data, args.niter, args.caim, args.tlim, args.rmax)

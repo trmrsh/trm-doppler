@@ -5,11 +5,11 @@ Defines the classes needed to represent Doppler maps.
 import collections
 import numpy as np
 from astropy.io import fits
-from scipy.interpolate import RegularGridInterpolator
+import copy
 
 from .core import *
 
-class Default:
+class Default (object):
     """
     Class defining the way in which the default image is computed.
     Main attribute is called 'option' which can have the following values:
@@ -135,7 +135,7 @@ ITNAMES = {
 # inverted version
 RITNAMES = {v: k for k, v in ITNAMES.items()}
 
-class Image:
+class Image(object):
     """This class contains all the information needed to specify a single image,
     including the wavelength of the line or lines associated with the image,
     systemic velocities, scaling factors, velocity scales of the image,
@@ -532,70 +532,60 @@ class Image:
         """
         return (self.data > 0.).all()
 
-    def csymm(self, vx0, vy0, method='median'):
-        """Returns a circularly symmetric version of an image around the
-        z-axis.  It does so by computing a radial profile centred on
-        vx0, vy0. The radial profile is sampled on half the pixel size
-        of the image in the vx-vy plane. Only defined for 2D at the moment.
-        The radial profile is built by taking the meadian or mean of all values
-        sampled from a circle centred on vx0,vy0.
+    def log(self):
+        """Takes natural log of the Image"""
+        self.data = np.log(self.data)
+
+    def sumf(self):
+        """Returns sum of image values"""
+        return self.data.sum()
+
+    def __itruediv__(self, other):
+        """Divides self by other, modifying in place and
+        returning self
         """
-
-        if self.data.ndim == 2:
-            # compute maximum velocity from centre to the corners
-            ny,nx = self.data.shape
-            vxy = self.vxy
-            vr = nx*vxy/2
-            vmax = np.sqrt((vr+abs(vx0))**2+(vr+abs(vy0))**2)
-
-            # make array representing x,y positions of pixels
-            x1, x2 = -vxy*(nx-1)/2,vxy*(nx-1)/2
-            x = np.linspace(x1,x2,nx)
-
-            y1, y2 = -vxy*(ny-1)/2,vxy*(ny-1)/2
-            y = np.linspace(y1,y2,ny)
-
-            # create interpolator. extrapolate off edges
-            interp = RegularGridInterpolator((y,x),self.data,bounds_error=False,fill_value=None)
-
-            # array of velocities for the radial profile
-            varr = np.linspace(0,vmax,int(vmax/(self.vxy/2)+1))
-            prof = np.empty_like(varr)
-            for n, v in enumerate(varr):
-                # number of points around circle and the angles
-                ntheta = max(8,int(2*np.pi*v/(self.vxy/2)+1))
-                thetas = np.linspace(0,2*np.pi*(1-1/ntheta),ntheta)
-
-                # make arrays of points around a circle, but select
-                # only those points within the image grid so they can
-                # be interpolated. This should limit the effect of
-                # extrapolated values
-                vxs = vx0 + v*np.cos(thetas)
-                vys = vy0 + v*np.sin(thetas)
-                ok = (vxs > -vr-vxy) & (vxs < vr+vxy) & (vys > -vr-vxy) & (vys < vr+vxy)
-                pts = np.column_stack((vys[ok],vxs[ok]))
-                vals = interp(pts)
-
-                if method == 'median':
-                    prof[n] = np.median(vals) if len(vals) else 0
-                else:
-                    raise NotImplementedError('Have not implemented method =',method)
-
-            # at this point we have an array of radii (in velocity) measured from
-            # vx0, vy0 (varr) and the profile values at those radii (prof). Now want
-            # to create an array with this imposed as the profile. Do so by calculating
-            # the
-            X,Y = np.meshgrid(x,y)
-            R = np.sqrt((X-vx0)**2+(Y-vy0)**2)
-            nvals = np.interp(R.flat,varr,prof).reshape((ny,nx))
-
-            return Image(
-                nvals, self.itype, self.vxy, self.wave, self.gamma, self.default,
-                self.scale, self.vz, self.group, self.pgroup, self.wgshdu
-            )
-
+        if isinstance(other, Image):
+            self.data /= other.data
         else:
-            raise NotImplementedError('Have not implemented 3D version')
+            self.data /= other
+        return self
+
+    def __imul__(self, other):
+        """Multiplies self by other, modifying in place and
+        returning self
+        """
+        if isinstance(other, Image):
+            self.data *= other.data
+        else:
+            self.data *= other
+        return self
+
+    def __isub__(self, other):
+        """Subtracts other from self, modifying in place and
+        returning self
+        """
+        if isinstance(other, Image):
+            self.data -= other.data
+        else:
+            self.data -= other
+        return self
+
+    def __iadd__(self, other):
+        """Adds other to self, modifying in place and
+        returning self
+        """
+        if isinstance(other, Image):
+            self.data += other.data
+        else:
+            self.data += other
+        return self
+
+    def __sub__(self, other):
+        """Subtracts other from self returning result as new Image
+        """
+        nimage = copy.deepcopy(self)
+        nimage -= other
+        return nimage
 
     def __repr__(self):
         return \
@@ -607,8 +597,7 @@ class Image:
             ', group=' + repr(self.group) + \
             ', pgroup=' + repr(self.pgroup) + ')'
 
-class Map:
-
+class Map(object):
     """
     This class represents a complete Doppler image. Features include:
     (1) different maps for different lines, (2) the same map
@@ -812,24 +801,122 @@ class Map:
                 return False
         return True
 
-    def csymm(self, vx0, vy0):
-        """
-        Computes circularly symmetric versions of all the images in the Map
-        centred on vx0, vy0. Returns a new Map
-        """
-        nimages = []
-        for image in self.data:
-            nimages.append(image.csymm(vx0,vy0))
+    def __itruediv__(self, other):
+        """Divides Map by other"""
+        if isinstance(other, Map):
+            for image, oimage in zip(self.data, other.data):
+                image /= oimage
+        else:
+            for image in self.data:
+                image /= other
+        return self
 
-        return Map(
-            self.head, nimages, self.tzero, self.period, self.quad, self.vfine, self.sfac
-        )
+    def __imul__(self, other):
+        """Multiplies Map by other"""
+        if isinstance(other, Map):
+            for image, oimage in zip(self.data, other.data):
+                image *= oimage
+        else:
+            for image in self.data:
+                image *= other
+        return self
+
+    def __isub__(self, other):
+        """Subtracts other from self"""
+        if isinstance(other, Map):
+            for image, oimage in zip(self.data, other.data):
+                image -= oimage
+        else:
+            for image in self.data:
+                image -= other
+        return self
+
+    def __iadd__(self, other):
+        """Adds other to self"""
+        if isinstance(other, Map):
+            for image, oimage in zip(self.data, other.data):
+                image += oimage
+        else:
+            for image in self.data:
+                image += other
+        return self
+
+    def __add__(self, other):
+        """Adds other to self returning result as new Map
+        """
+        nmap = copy.deepcopy(self)
+        nmap += other
+        return nmap
+
+    def __sub__(self, other):
+        """Subtracts other from self returning result as new Map
+        """
+        nmap = copy.deepcopy(self)
+        nmap -= other
+        return nmap
+
+    def __rsub__(self, other):
+        """Returns other-self
+        """
+        nmap = copy.deepcopy(self)*-1
+        nmap += other
+        return nmap
+
+    def __truediv__(self, other):
+        """Divdes self by other returning result as new Map
+        """
+        nmap = copy.deepcopy(self)
+        nmap /= other
+        return nmap
+
+    def __mul__(self, other):
+        """Multiplies Map by other, returns result as new Map"""
+        nmap = copy.deepcopy(self)
+        nmap *= other
+        return nmap
+
+    def log(self):
+        """Takes log of Map"""
+        for image in self.data:
+            image.log()
+
+    def sumf(self):
+        """Returns sum of image values"""
+        sum = 0
+        for image in self.data:
+            sum += image.sumf()
+        return sum
 
     def __repr__(self):
         return 'Map(head=' + repr(self.head) + \
             ', data=' + repr(self.data) + ', tzero=' + repr(self.tzero) + \
             ', period=' + repr(self.period) + ', quad=' + repr(self.quad) + \
             ', vfine=' + repr(self.vfine) + ', sfac=' + repr(self.sfac) + ')'
+
+def inner_product(map1, map2, metric=None, invert=True):
+    """Computes the scalar inner product between two Map objects with an optional
+    diagonal metric. The metric, if defined, should be a matching Map. It is
+    assumed to represent the fully contravariant components of the metric and
+    thus to be applicable directly to obtaining the scalar length given two
+    one-form inputs. Otherwise it needs to be inverted. Inversion is set to be
+    the default so that standardly map1 and map2 are assumed to be vector
+    inputs. If they are one-forms, then 'invert' must be set = False. If map1
+    and map2 are heterogeneous then no metric is required.
+
+    """
+
+    inner = 0
+    if metric is None:
+        for image1, image2 in zip(map1.data, map2.data):
+            inner += (image1.data*image2.data).sum()
+    else:
+        for image1, image2, mimage in zip(map1.data, map2.data, metric.data):
+            if invert:
+                inner += (image1.data*image2.data/mimage.data).sum()
+            else:
+                inner += (image1.data*image2.data*mimage.data).sum()
+
+    return inner
 
 if __name__ == '__main__':
 

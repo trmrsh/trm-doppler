@@ -5,6 +5,7 @@ Doppler imaging in a FITS-compatible manner.
 
 import numpy as np
 from astropy.io import fits
+import copy
 
 from .core import *
 
@@ -159,6 +160,36 @@ class Spectra(object):
 
         return hdul
 
+    def __imul__(self, other):
+        """Multiplies self by other in place"""
+        if isinstance(other,Spectra):
+            self.flux *= other.flux
+        else:
+            self.flux *= other
+        return self
+
+    def __itruediv__(self, other):
+        """Divides self by other in place"""
+        if isinstance(other,Spectra):
+            self.flux /= other.flux
+        else:
+            self.flux /= other
+        return self
+
+    def __isub__(self, other):
+        """Subtracts other from self in place"""
+        if isinstance(other,Spectra):
+            self.flux -= other.flux
+        else:
+            self.flux -= other
+        return self
+
+    def swap_fe(self):
+        """Swap data for errors"""
+        save = self.flux
+        self.flux = self.ferr
+        self.ferr = save
+
     def __repr__(self):
         return 'Spectra(flux=' + repr(self.flux) + \
             ', ferr=' + repr(self.ferr) + ', wave=' + repr(self.wave) + \
@@ -279,22 +310,65 @@ class Data(object):
             n += spectra.flux.size
         return n
 
-def chisquared(data, model):
-    """
-    Calculates the chi**2 between two Data objects, 'data' and
-    'model'. 'data' sets the uncertainties, including those which
-    will be skipped (<= 0).
+    def vnorm(self):
+        """Divides data by variances and multiplies by 2/ndata
+        to get into correct form for mem"""
+        nd = self.size
+        for spectra in self.data:
+            spectra.flux /= spectra.ferr**2
+            spectra.flux *= 2/nd
 
-    Returns (chisq, ndata), which are the chi**2 value and number of
-    data points (excluding masked ones)
-    """
-    chisq = 0.
-    ndata = 0
-    for mspec, dspec in zip(model.data, data.data):
-        ok = dspec.ferr > 0.
-        chisq += (((dspec.flux[ok]-mspec.flux[ok])/dspec.ferr[ok])**2).sum()
-        ndata += len(dspec.flux[ok])
-    return (chisq, ndata)
+    def __imul__(self, other):
+        """Multiplies self by other in place"""
+        if isinstance(other,Data):
+            for ispec, ospec in zip(self.data,other.data):
+                ispec *= ospec
+        else:
+            for ispec in self.data:
+                ispec *= other
+        return self
+
+    def __itruediv__(self, other):
+        """Divides self by other in place"""
+        if isinstance(other,Data):
+            for ispec, ospec in zip(self.data,other.data):
+                ispec /= ospec
+        else:
+            for ispec in self.data:
+                ispec /= other
+        return self
+
+    def __isub__(self, other):
+        """Subtracts other from self"""
+        if isinstance(other,Data):
+            for ispec, ospec in zip(self.data,other.data):
+                ispec -= ospec
+        else:
+            for ispec in self.data:
+                ispec -= other
+        return self
+
+    def __sub__(self, other):
+        """Subtracts other from self and returns result"""
+        ndata = copy.deepcopy(self)
+        ndata -= other
+        return ndata
+
+    def swap_fe(self):
+        for ispec in self.data:
+            ispec.swap_fe()
+
+
+def inner_product(data1, data2):
+    """Defines inner product for two Datas. Basically
+    multiplies them element by element, divides by variances
+    of data1 and multiplies by 2/ndata"""
+    ndata = data1.size
+    inner = 0.
+    for spectra1, spectra2 in zip(data1.data,data2.data):
+        inner += (spectra1.flux*spectra2.flux/spectra1.ferr**2).sum()
+    inner *= 2/ndata
+    return inner
 
 if __name__ == '__main__':
 
