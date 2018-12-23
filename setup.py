@@ -15,6 +15,7 @@ include_dirs = []
 
 # need to direct to where includes and  libraries are
 if 'TRM_SOFTWARE' in os.environ:
+    library_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'lib64'))
     library_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'lib'))
     include_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'include'))
 else:
@@ -44,13 +45,14 @@ setup(name='trm.doppler',
               'comdat=trm.doppler.scripts.comdat:comdat',
               'comdef=trm.doppler.scripts.comdef:comdef',
               'drlimit=trm.doppler.scripts.drlimit:drlimit',
+              'entropy=trm.doppler.scripts.entropy:entropy',
               'makedata=trm.doppler.scripts.makedata:makedata',
               'makegrid=trm.doppler.scripts.makegrid:makegrid',
               'makemap=trm.doppler.scripts.makemap:makemap',
               'memit=trm.doppler.scripts.memit:memit',
               'mol2dopp=trm.doppler.scripts.mol2dopp:mol2dopp',
               'mspruit=trm.doppler.scripts.mspruit:mspruit',
-              'optgam=trm.doppler.scripts.optgam:optgam',
+              'optgam=trm.doppler.scripts.optscl:optgam',
               'optscl=trm.doppler.scripts.optscl:optscl',
               'precover=trm.doppler.scripts.precover:precover',
               'psearch=trm.doppler.scripts.precover:psearch',

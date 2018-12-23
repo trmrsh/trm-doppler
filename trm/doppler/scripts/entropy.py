@@ -125,3 +125,7 @@ def entropy(args=None):
 
     # By this point we have calculated the sub-space quadratic model
     # parameters for both S and C. 
+
+    sdd = np.matrix(sdd)
+    w, v = np.linalg.eigh(sdd)
+    print(w,v)
