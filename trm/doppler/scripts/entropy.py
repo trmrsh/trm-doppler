@@ -124,8 +124,28 @@ def entropy(args=None):
     print('gcd0 =',sdd[:,2])
 
     # By this point we have calculated the sub-space quadratic model
-    # parameters for both S and C. 
+    # parameters for both S and C.
 
-    sdd = np.matrix(sdd)
-    w, v = np.linalg.eigh(sdd)
-    print(w,v)
+    # make matrix versions
+    msdd = np.matrix(sdd)
+    mcdd = np.matrix(cdd)
+
+    diag_sdd = np.diagflat(1/np.sqrt(np.diag(msdd)))
+    print(msdd,diag_sdd)
+
+    # normalise
+    nsdd = diag_sdd*msdd*diag_sdd
+    ncdd = diag_sdd*mcdd*diag_sdd
+
+    print('nsdd =',nsdd)
+    evals, evecs = np.linalg.eigh(nsdd)
+    print('eigen values  =',evals)
+    print('eigen vectors =',evecs)
+
+    nsrch = len(evals)
+    evalmx = 3.e-5*evals[-1]
+    ret = np.searchsorted(evals, evalmx)
+    print('ret =',ret)
+    ndim = nsrch - ret
+
+    // rotate (2379 in memsys)
