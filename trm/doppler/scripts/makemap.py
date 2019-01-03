@@ -404,7 +404,7 @@ ein    = +3.0
                     exit(1)
                 break
 
-            itype = doppler.RITNAMES[config.get(img,'itype')]
+            itype = doppler.map.RITNAMES[config.get(img,'itype')]
 
             nxy = config.getint(img,'nxy')
             nz  = config.getint(img,'nz')
@@ -424,24 +424,24 @@ ein    = +3.0
             array.fill(back)
 
             # Default
-            defop = list(doppler.Default.DNAMES.keys())[
-                list(doppler.Default.DNAMES.values()).index(
+            defop = list(doppler.map.Default.DNAMES.keys())[
+                list(doppler.map.Default.DNAMES.values()).index(
                     config.get(img,'default'))
             ]
             bias = config.getfloat(img,'bias')
-            if defop == doppler.Default.UNIFORM:
-                default = doppler.Default.uniform(bias)
+            if defop == doppler.map.Default.UNIFORM:
+                default = doppler.map.Default.uniform(bias)
 
-            elif defop == doppler.Default.GAUSS2D:
+            elif defop == doppler.map.Default.GAUSS2D:
                 if nz > 1:
                     print('Cannot use GAUSS2D default for 3D image')
                     print('Probably want GAUSS3D')
                     exit(1)
 
                 fwhmxy = config.getfloat(img,'fwhmxy')
-                default = doppler.Default.gauss2d(bias, fwhmxy)
+                default = doppler.map.Default.gauss2d(bias, fwhmxy)
 
-            elif defop == doppler.Default.GAUSS3D:
+            elif defop == doppler.map.Default.GAUSS3D:
                 if nz == 1:
                     print('Cannot use GAUSS3D default for 2D image')
                     print('Probably want GAUSS2D')
@@ -449,7 +449,7 @@ ein    = +3.0
 
                 fwhmxy = config.getfloat(img,'fwhmxy')
                 fwhmz = config.getfloat(img,'fwhmz')
-                default = doppler.Default.gauss3d(bias, fwhmxy, fwhmz)
+                default = doppler.map.Default.gauss3d(bias, fwhmxy, fwhmz)
 
             if config.has_option(img, 'group'):
                 group = config.getint(img,'group')
@@ -566,19 +566,19 @@ ein    = +3.0
 
             # create and store image
             images.append(
-                doppler.Image(
+                doppler.map.Image(
                     array, itype, vxy, wave, gamma,
                     default, scale, vz, group, wgshdu=wgshdu
                 )
             )
             print(
                 'Created image number',nimage,', wavelength(s) =',wave,
-                'type =',doppler.ITNAMES[itype]
+                'type =',doppler.map.ITNAMES[itype]
             )
             nimage += 1
 
         # create the Map
-        map = doppler.Map(mhead,images,tzero,period,quad,vfine,sfac)
+        map = doppler.map.Map(mhead,images,tzero,period,quad,vfine,sfac)
 
         # Write to a fits file
         map.wfits(
