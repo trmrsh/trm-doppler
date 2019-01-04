@@ -2740,9 +2740,8 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
 
         // level=20 or 42 for verbose
         // add 3 to mode to get smaller number of search
-        // directions
-        mode += 3;
-        Mem::memprm(mode,42,caim,rmax,1.,acc,c,test,cnew,s,rnew,snew,sumf);
+        // directions -temporary
+        Mem::memprm(mode+3,42,caim,rmax,1.,acc,c,test,cnew,s,rnew,snew,sumf);
         if(test < tlim && c <= caim) break;
     }
 
