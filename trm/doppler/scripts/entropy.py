@@ -138,14 +138,35 @@ def entropy(args=None):
     ncdd = diag_sdd*mcdd*diag_sdd
 
     print('nsdd =',nsdd)
-    evals, evecs = np.linalg.eigh(nsdd)
-    print('eigen values  =',evals)
-    print('eigen vectors =',evecs)
+    svals, svecs = np.linalg.eigh(nsdd)
+    print('S eigen values  =',svals)
+    print('S eigen vectors =',svecs)
 
-    nsrch = len(evals)
-    evalmx = 3.e-5*evals[-1]
-    ret = np.searchsorted(evals, evalmx)
-    print('ret =',ret)
-    ndim = nsrch - ret
+    nsrch = len(svals)
+    svalmx = 3.e-5*svals[-1]
 
-    // rotate (2379 in memsys)
+    # 'lowest' is the lowest eigenvalue to retain, and
+    # corresponds to 'l' in meml3
+    lowest = np.searchsorted(svals, svalmx)
+    print('lowest =',lowest)
+    ndim = nsrch - lowest
+
+    # rotate cdd (lines 2378-2397 in memsys)
+    # rcdd corresponds to w1
+    rcdd = svecs[:,lowest:].T*ncdd*svecs[:,lowest:]
+    print(rcdd)
+
+    # squeeze rcdd to isotropise the now-diagonal sdd
+    diag_sval = np.diagflat(1/np.sqrt(svals[lowest:]))
+    rcdd = diag_sval*rcdd*diag_sval
+
+    # equiv "meml33(ndim,w1,cval,w2);" in memsys
+    # returns eigenvalues and vectors of rotated cdd matrix.
+    cvals, cvec = np.linalg.eigh(rcdd)
+
+    # equiv to lines following "complete squeeze of w2 back to 
+    # sdd eigenvector space" in memsys [cdd standing in for 'w2']
+    rcdd = rcdd*diag_sval
+
+    print(rcdd)
+
