@@ -7,7 +7,8 @@ import numpy
 # get round irritating compiler warning
 class BuildExt(build_ext):
     def build_extensions(self):
-        self.compiler.compiler_so.remove('-Wstrict-prototypes')
+        if '-Wstrict-prototypes' in self.compiler.compiler_so:
+            self.compiler.compiler_so.remove('-Wstrict-prototypes')
         super().build_extensions()
 
 library_dirs = []
@@ -19,8 +20,7 @@ if 'TRM_SOFTWARE' in os.environ:
     library_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'lib'))
     include_dirs.append(os.path.join(os.environ['TRM_SOFTWARE'], 'include'))
 else:
-    print >>sys.stderr, \
-        "Environment variable TRM_SOFTWARE pointing to location of shareable libraries and includes not defined!"
+    print("Environment variable TRM_SOFTWARE pointing to location of shareable libraries and includes not defined!",file=sys.stderr)
 
 include_dirs.append(numpy.get_include())
 
