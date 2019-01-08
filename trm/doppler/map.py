@@ -587,6 +587,14 @@ class Image(object):
         nimage -= other
         return nimage
 
+    def __rtruediv__(self, other):
+        """Divides self by other, modifying in place and
+        returning self
+        """
+        nimage = copy.deepcopy(self)
+        nimage.data = other / nimage.data
+        return nimage
+
     def __repr__(self):
         return \
             'Image(data=' + repr(self.data) + ', itype=' + \
@@ -869,8 +877,22 @@ class Map(object):
         nmap /= other
         return nmap
 
+    def __rtruediv__(self, other):
+        """Divdes other by self returning result as new Map
+        """
+        nmap = copy.deepcopy(self)
+        for n in range(len(nmap.data)):
+            nmap.data[n] = other / nmap.data[n]
+        return nmap
+
     def __mul__(self, other):
         """Multiplies Map by other, returns result as new Map"""
+        nmap = copy.deepcopy(self)
+        nmap *= other
+        return nmap
+
+    def __rmul__(self, other):
+        """Multiplies other by Map, returns result as new Map"""
         nmap = copy.deepcopy(self)
         nmap *= other
         return nmap
@@ -893,29 +915,16 @@ class Map(object):
             ', period=' + repr(self.period) + ', quad=' + repr(self.quad) + \
             ', vfine=' + repr(self.vfine) + ', sfac=' + repr(self.sfac) + ')'
 
-def inner_product(map1, map2, metric=None, invert=True):
-    """Computes the scalar inner product between two Map objects with an optional
-    diagonal metric. The metric, if defined, should be a matching Map. It is
-    assumed to represent the fully contravariant components of the metric and
-    thus to be applicable directly to obtaining the scalar length given two
-    one-form inputs. Otherwise it needs to be inverted. Inversion is set to be
-    the default so that standardly map1 and map2 are assumed to be vector
-    inputs. If they are one-forms, then 'invert' must be set = False. If map1
-    and map2 are heterogeneous then no metric is required.
-
+def inner_product(map1, map2):
+    """Computes the scalar inner product between two Map objects. The
+    inputs need to represent the components of a vector and one-form
+    (or co- and contra-variant vectors) for this to make any sense. It is up
+    the user to ensure this.
     """
 
     inner = 0
-    if metric is None:
-        for image1, image2 in zip(map1.data, map2.data):
-            inner += (image1.data*image2.data).sum()
-    else:
-        for image1, image2, mimage in zip(map1.data, map2.data, metric.data):
-            if invert:
-                inner += (image1.data*image2.data/mimage.data).sum()
-            else:
-                inner += (image1.data*image2.data*mimage.data).sum()
-
+    for image1, image2 in zip(map1.data, map2.data):
+        inner += (image1.data*image2.data).sum()
     return inner
 
 if __name__ == '__main__':

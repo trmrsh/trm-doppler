@@ -3,6 +3,40 @@ from trm import doppler
 import copy
 import numpy as np
 
+def eigpd(mat):
+    """
+    Given symmetric input matrix mat, this first adds a diagonal
+    matrix to make it positive definite, then returns eigenvalues
+    and eigenvectors as a two element tuple. See meml33 in memsys.
+    I have merely copied what is done there without understanding
+    the precise details.
+    """
+    EPS=3.0e-16
+
+    print('\n   input matrix =\n',mat)
+
+    a = np.trace(mat)
+    b = np.square(mat).sum()
+    t = mat.shape[0]
+    c = max(b-a**2/t,0.)
+    c = a/t-np.sqrt(c)-EPS*np.sqrt(b)
+    print('   a,b,c,t =',a,b,c,t)
+    print('   eigenvalues and vectors =\n')
+
+    # z is transformed matrix which should be positive definite
+    z = mat - c*np.identity(mat.shape[0])
+
+    # return z's eigenvalues and vectors
+    vals, vecs = np.linalg.eigh(z)
+    for n in range(z.shape[0]):
+        print('   ',n,vals[n],'{',[float(v) for v in vecs[:,n]],'}')
+    vls, vcs = np.linalg.eigh(mat)
+    vls += c
+    print(vls,vcs)
+
+    return (vals, vecs)
+
+
 def entropy(args=None):
     """
     entropy -- iterates to minimum chi**2 for a fixed entropy
@@ -33,9 +67,11 @@ def entropy(args=None):
     dmap = doppler.map.Map.rfits(doppler.afits(args.imap))
     data = doppler.data.Data.rfits(doppler.afits(args.data))
 
-    # metric with both indices in contra-variant "up" positions for taking
-    # one-forms to vectors
-    umetric = dmap
+    # entropy metric with both indices in contra-variant "up" positions for taking
+    # one-forms to vectors, and its covariant partner. 'u' and 'd' are used repeatedly
+    # later on to distinguish vector and one-form components.
+    guu = dmap
+    gdd = 1/dmap
 
     # copy the data, compute model data [in mdata]
     mdata = copy.deepcopy(data)
@@ -52,73 +88,72 @@ def entropy(args=None):
     resid.vnorm()
 
     # apply tropus to the result to get chi**2 gradient one-form,
-    # factor 2 needed for square in chi**2
-    gradc = copy.deepcopy(dmap)
-    doppler.datcom(resid, gradc)
+    # "dgradc" ('d' for down covariant index). factor 2 needed for
+    # square in chi**2
+    dgradc = copy.deepcopy(dmap)
+    doppler.datcom(resid, dgradc)
 
-    # compute its length-squared
-    gradc_lsq = doppler.map.inner_product(
-        gradc, gradc, umetric, False
-    )
+    # compute equivalent gradient (uses diagonal nature of metric)
+    ugradc = guu*dgradc
 
-    # copy the map, compute default [in grads]
-    grads = copy.deepcopy(dmap)
-    doppler.comdef(grads)
+    # compute length-squared
+    gradc_lsq = doppler.map.inner_product(ugradc, dgradc)
 
-    # take log of default / map -- this is entropy gradient one-form
-    grads /= dmap
-    grads.log()
-    S = (dmap*(grads+1)).sumf()
+    # copy the map, compute default
+    defmap = copy.deepcopy(dmap)
+    doppler.comdef(defmap)
+
+    # take log(default / map) -- this is entropy gradient one-form
+    dgrads = defmap / dmap
+    dgrads.log()
+
+    # entropy, as defined in memsys
+    S = (dmap*(dgrads+1)).sumf()/defmap.sumf()-1
     print('S =',S)
 
     # compute its length-squared
-    grads_lsq = doppler.map.inner_product(
-        grads, grads, umetric, False
-    )
+    ugrads = guu*dgrads
+    grads_lsq = doppler.map.inner_product(ugrads, dgrads)
 
     # take difference between length-normalised one-forms
-    diff = gradc/np.sqrt(gradc_lsq) - grads/np.sqrt(grads_lsq)
+    ddiff = dgradc/np.sqrt(gradc_lsq) - dgrads/np.sqrt(grads_lsq)
 
     # report TEST
-    print('TEST =',doppler.map.inner_product(diff,diff,umetric,False)/2)
+    udiff = guu*ddiff
+    print('TEST =',doppler.map.inner_product(udiff,ddiff)/2)
 
-    # Three basic search directions which are the map itself, and the vector
-    # forms of the gradients. The map itself is already a vector and needs no
-    # conversion.
-    search_dirns = [dmap, umetric*grads, umetric*gradc]
-    ndirn = len(search_dirns)
+    # Three basic search directions which are the map itself and the gradients.
+    # Store both vector and one-form components
+    usearch_dirns = [dmap, ugrads, ugradc]
+    dsearch_dirns = [gdd*dmap, dgrads, dgradc]
+    ndirn = len(usearch_dirns)
 
     # entropy sub-space curvatures
     sdd = np.empty((ndirn,ndirn))
 
-    # calculate inner products of search directions with metric
-    # since the metric is grad(grad(S))
-    for i, sdi in enumerate(search_dirns):
-        for j, sdj in enumerate(search_dirns[:i+1]):
-            sdd[j,i] = sdd[i,j] = doppler.map.inner_product(
-                sdi, sdj, umetric
-            )
-
-    print(sdd)
+    # calculate inner products of search directions to develop quadratic
+    # part of entropy model. Works because grad(grad(S)) is our metric.
+    for i, usdi in enumerate(usearch_dirns):
+        for j, dsdj in enumerate(dsearch_dirns[:i+1]):
+            sdd[j,i] = sdd[i,j] = doppler.map.inner_product(usdi, dsdj)
+    print('sdd =\n',sdd)
 
     # chi**2/N sub-space curvatures
     cdd = np.empty((ndirn,ndirn))
 
-    # compute first data space search directions (first already
-    # calculated)
+    # compute first data space search directions
+    # (first already calculated)
     data_search_dirns = [mdata,]
-    for sdi in search_dirns[1:]:
+    for sdi in usearch_dirns[1:]:
         tdata = copy.deepcopy(data)
         doppler.comdat(sdi, tdata)
         data_search_dirns.append(tdata)
 
-    # inner products
-    for i, dsdi in enumerate(data_search_dirns):
-        for j, dsdj in enumerate(data_search_dirns[:i+1]):
-            cdd[j,i] = cdd[i,j] = \
-                       doppler.data.inner_product(dsdi, dsdj)
-
-    print(cdd)
+    # inner products, no messing with metrics here
+    for i, sdi in enumerate(data_search_dirns):
+        for j, sdj in enumerate(data_search_dirns[:i+1]):
+            cdd[j,i] = cdd[i,j] = doppler.data.inner_product(sdi, sdj)
+    print('cdd =\n',cdd)
 
     print('gsd0 =',sdd[:,1])
     print('gcd0 =',sdd[:,2])
@@ -137,10 +172,8 @@ def entropy(args=None):
     nsdd = diag_sdd*msdd*diag_sdd
     ncdd = diag_sdd*mcdd*diag_sdd
 
-    print('nsdd =',nsdd)
-    svals, svecs = np.linalg.eigh(nsdd)
-    print('S eigen values  =',svals)
-    print('S eigen vectors =',svecs)
+    print('\nS matrix')
+    svals, svecs = eigpd(nsdd)
 
     nsrch = len(svals)
     svalmx = 3.e-5*svals[-1]
@@ -154,19 +187,19 @@ def entropy(args=None):
     # rotate cdd (lines 2378-2397 in memsys)
     # rcdd corresponds to w1
     rcdd = svecs[:,lowest:].T*ncdd*svecs[:,lowest:]
-    print(rcdd)
 
     # squeeze rcdd to isotropise the now-diagonal sdd
     diag_sval = np.diagflat(1/np.sqrt(svals[lowest:]))
     rcdd = diag_sval*rcdd*diag_sval
+    print('squeezed w1 =\n',rcdd,'\n')
 
     # equiv "meml33(ndim,w1,cval,w2);" in memsys
     # returns eigenvalues and vectors of rotated cdd matrix.
-    cvals, cvec = np.linalg.eigh(rcdd)
+    print('\nSqueezed rotated CDD matrix')
+    cvals, cvec = eigpd(rcdd)
 
     # equiv to lines following "complete squeeze of w2 back to 
     # sdd eigenvector space" in memsys [cdd standing in for 'w2']
-    rcdd = rcdd*diag_sval
-
-    print(rcdd)
+    cvec = cvec*diag_sval
+    print('squeezed w2 =\n',cvec,'\n')
 
