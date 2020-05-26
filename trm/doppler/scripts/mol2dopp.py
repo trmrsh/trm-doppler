@@ -81,6 +81,9 @@ def mol2dopp(args=None):
             time[n]   = spc.head['HJD']-2400000.5
             expose[n] = spc.head['Dwell']/86400.
 
+    if np.isnan(flux).any() or np.isnan(ferr).any() or np.isnan(wave).any():
+        print('One or more of flux / ferr / wave contains a NaN')
+ 
     # Create a "Spectra" object [this is where you could cope with
     # heterogenous data by creating more than one such object]
     spectra = doppler.Spectra(flux, ferr, wave, time, expose, nsub, args.fwhm)
