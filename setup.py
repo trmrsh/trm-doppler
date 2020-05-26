@@ -5,10 +5,10 @@ from setuptools.command.build_ext import build_ext
 import numpy
 
 # get round irritating compiler warning
-class BuildExt(build_ext):
-    def build_extensions(self):
-        self.compiler.compiler_so.remove('-Wstrict-prototypes')
-        super().build_extensions()
+#class BuildExt(build_ext):
+#    def build_extensions(self):
+#        self.compiler.compiler_so.remove('-Wstrict-prototypes')
+#        super().build_extensions()
 
 library_dirs = []
 include_dirs = []
@@ -70,7 +70,7 @@ setup(name='trm.doppler',
 doppler is an implementation of Doppler tomography package. It has many advantages over the
 former set of F77 routines.
 """,
-      cmdclass={'build_ext': BuildExt}
+#      cmdclass={'build_ext': BuildExt}
 
       )
 
