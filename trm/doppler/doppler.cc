@@ -392,7 +392,7 @@ void op(const float* image, const std::vector<Nxyz>& nxyz,
                     pystep = +vxyi/vfine*sinp;
                     if(nz > 1){
                         pzoff  = double(nfine-1)/2. - vzi*double(nz+1)/2./vfine;
-                        pzstep = vzi/vfine;
+                        pzstep = -vzi/vfine;
                     }else{
                         pzoff  = double(nfine-1)/2.;
                         pzstep = 0.;
@@ -879,7 +879,7 @@ void tr(float* image, const std::vector<Nxyz>& nxyz,
                     pxstep = -vxyi/vfine*cosp;
                     pystep =  vxyi/vfine*sinp;
                     if(nz > 1){
-                        pzstep = vzi/vfine;
+                        pzstep = -vzi/vfine;
                     }else{
                         pzstep = 0.;
                     }
