@@ -119,8 +119,10 @@ nsub   = 3
 
         tver   = config.getint('main', 'version')
         if tver != doppler.VERSION:
-            print('Version number in config file =',tver,
-                  'conflicts with version of script =',version)
+            print(
+                f'Version number in config file = {tver} '
+                f'conflicts with version of script = {doppler.VERSION}'
+            )
             print('Will continue but there may be problems')
 
         target = config.get('main', 'target')
