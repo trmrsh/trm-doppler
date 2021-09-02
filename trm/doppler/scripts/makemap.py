@@ -113,6 +113,11 @@ OBJECT = SS433
 #          useful.
 # fwhmxy : if default=GAUSS2D or GAUSS3D, this is FWHM, km/s,to use in X-Y plane
 # fwhmz  : if default=GAUSS3D, this is FWHM, km/s, to use in Z
+# squeeze : factor from 0 to 1 to use when trying to squeeze a 3D default
+#           idea is default will be (1-squeeze)*(usual gaussian blurr) + 
+#           squeeze*(version of the gaussian blurr with same mean at each x-y
+#           but enforced narrow FWHM).
+# sqfwhm : FWHM to use for squeezed part (only if squeeze > 0)
 # waves  : list of wavelengths associated with the image
 # gammas : list of systemic velocities [km/s] associated with the image
 # scales : list of scale factors associated with the image [ignored
@@ -132,6 +137,8 @@ default = GAUSS2D
 bias    = 1.
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 486.1 434.0
 gammas  = 100. 120.
 scales  = 1.0 0.6
@@ -152,6 +159,8 @@ default = GAUSS2D
 bias    = 1.
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 468.6
 gammas  = 100.
 
@@ -168,6 +177,8 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 468.6
 gammas  = 100.
 
@@ -184,6 +195,8 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 468.6
 gammas  = 100.
 
@@ -200,6 +213,8 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 468.6
 gammas  = 100.
 
@@ -216,6 +231,8 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 468.6
 gammas  = 100.
 
@@ -232,6 +249,8 @@ default = GAUSS2D
 bias    = 0.9
 fwhmxy  = 500.
 fwhmz   = 0.
+squeeze = 0.
+sqfwhm  = 100.
 waves   = 468.6
 gammas  = 100.
 
@@ -360,7 +379,7 @@ ein    = +3.0
         config = configparser.RawConfigParser()
         config.read(doppler.acfg(args.config))
 
-        tver   = config.getint('main', 'version')
+        tver = config.getint('main', 'version')
         if tver != doppler.VERSION:
             print('Version number in config file =',tver,
                   'conflicts with version of script =',doppler.VERSION)
@@ -449,7 +468,11 @@ ein    = +3.0
 
                 fwhmxy = config.getfloat(img,'fwhmxy')
                 fwhmz = config.getfloat(img,'fwhmz')
-                default = doppler.Default.gauss3d(bias, fwhmxy, fwhmz)
+                squeeze = config.getfloat(img,'squeeze')
+                sqfwhm = config.getfloat(img,'sqfwhm')
+                default = doppler.Default.gauss3d(
+                    bias, fwhmxy, fwhmz, squeeze, sqfwhm
+                )
 
             if config.has_option(img, 'group'):
                 group = config.getint(img,'group')
