@@ -1021,11 +1021,11 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
 
       // create FFT plans for the blurr, work and final inverse
       pblurr = fftw_plan_dft_r2c_1d(NTOT, blurr, RECAST(bfft), FFTW_ESTIMATE);
-      pforw  = fftw_plan_dft_r2c_1d(NTOT, array, RECAST(afft), FFTW_ESTIMATE);
+      pforw = fftw_plan_dft_r2c_1d(NTOT, array, RECAST(afft), FFTW_ESTIMATE);
       pback = fftw_plan_dft_c2r_1d(NTOT, RECAST(afft), array, FFTW_ESTIMATE);
 
       // all memory allocated. Get on with it.
-      norm  = blurr[0] = 1.;
+      norm = blurr[0] = 1.;
       sigma = fwhmx/EFAC;
       for(m=1, n=NTOT-1; m<nadd/2; m++, n--){
           prf = std::exp(-std::pow(m/sigma,2)/2.);
@@ -1046,8 +1046,8 @@ void gaussdef(const float *input, const Nxyz& nxyz, double fwhmx,
       // FFT the blurring array
       fftw_execute(pblurr);
 
-      iptr  = output;
-      optr  = output;
+      iptr = output;
+      optr = output;
       nstep = nxyz.nx;
 
       for(iz=0; iz<nxyz.nz; iz++){
@@ -1270,7 +1270,7 @@ namespace Dopp {
     std::vector<Nxyz> nxyz;
     std::vector<DefOpt> def;
     std::vector<Itype> itype;
-    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz, squeeze, sqfwhm;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
     double tzero, period, quad, vfine, sfac;
@@ -1427,6 +1427,8 @@ npix_map(PyObject *Map, size_t& npix)
  *  def     :  default options for each image (output) [see map.py]
  *  fwhmxy  :  gaussian defaults, FWHM blurr in km/s in Vx-Vy(output)
  *  fwhmz   :  gaussian defaults, FWHM blurr in km/s in Vz (output)
+ *  squeeze :  gaussian defaults, 3D squeeze towards the mean
+ *  sqfwhm  :  FWHM to use for squeeze component
  *  tzero   :  zeropoint of ephemeris (output)
  *  period  :  period of ephemeris (output)
  *  quad    :  quadratic term of ephemeris (output)
@@ -1448,8 +1450,9 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
          std::vector<std::vector<float> >& scale,
          std::vector<Itype>& itype, std::vector<DefOpt>& def,
          std::vector<double>& bias, std::vector<double>& fwhmxy,
-         std::vector<double>& fwhmz, double& tzero,
-         double& period, double& quad, double& vfine,
+         std::vector<double>& fwhmz, std::vector<double>& squeeze,
+         std::vector<double>& sqfwhm,
+         double& tzero, double& period, double& quad, double& vfine,
          double& sfac)
 {
 
@@ -1465,6 +1468,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     PyObject *igamma=NULL, *ivxy=NULL, *iscale=NULL, *ivz=NULL;
     PyObject *itzero=NULL, *iperiod=NULL, *iquad=NULL, *ivfine=NULL;
     PyObject *isfac=NULL, *idef=NULL, *doption=NULL, *dbias=NULL;
+    PyObject *dsqueeze=NULL, *dsqfwhm=NULL;
     PyObject *dfwhmxy=NULL, *dfwhmz=NULL, *iitype=NULL;
     PyArrayObject *darray=NULL, *warray=NULL, *garray=NULL;
     PyArrayObject *sarray=NULL;
@@ -1479,6 +1483,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     bias.clear();
     fwhmxy.clear();
     fwhmz.clear();
+    squeeze.clear();
+    sqfwhm.clear();
     scale.clear();
     itype.clear();
 
@@ -1497,7 +1503,7 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
         goto failed;
     }
 
-    // data should be a list of Images, so lets test it
+    // data should be a list of Images, so let's test it
     if(!PySequence_Check(data)){
         PyErr_SetString(PyExc_ValueError,
                         "doppler.read_map: map.data is not a sequence");
@@ -1505,11 +1511,11 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     }
 
     // store values for easy ones
-    tzero  = PyFloat_AsDouble(itzero);
+    tzero = PyFloat_AsDouble(itzero);
     period = PyFloat_AsDouble(iperiod);
-    quad   = PyFloat_AsDouble(iquad);
-    vfine  = PyFloat_AsDouble(ivfine);
-    sfac   = PyFloat_AsDouble(isfac);
+    quad = PyFloat_AsDouble(iquad);
+    vfine = PyFloat_AsDouble(ivfine);
+    sfac = PyFloat_AsDouble(isfac);
 
     // define scope to avoid compilation error
     {
@@ -1536,7 +1542,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
             ivxy = PyObject_GetAttrString(image, "vxy");
             ivz = PyObject_GetAttrString(image, "vz");
 
-            if(idata && iwave && igamma && ivxy && idef && iitype && iscale && ivz){
+            if(idata && iwave && igamma && ivxy && idef && iitype && iscale
+               && ivz){
 
                 darray = (PyArrayObject*)                               \
                     PyArray_FromAny(idata, PyArray_DescrFromType(NPY_FLOAT),
@@ -1642,6 +1649,22 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                         goto failed;
                     }
                     fwhmz.push_back(PyFloat_AS_DOUBLE(dfwhmz));
+
+                    dsqueeze = PyObject_GetAttrString(idef, "squeeze");
+                    if(!dsqueeze){
+                        PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
+                                        " failed to locate an Image.default.squeeze");
+                        goto failed;
+                    }
+                    squeeze.push_back(PyFloat_AS_DOUBLE(dsqueeze));
+
+                    dsqfwhm = PyObject_GetAttrString(idef, "sqfwhm");
+                    if(!dsqfwhm){
+                        PyErr_SetString(PyExc_ValueError, "doppler.read_map:"
+                                        " failed to locate an Image.default.sqfwhm");
+                        goto failed;
+                    }
+                    sqfwhm.push_back(PyFloat_AS_DOUBLE(dsqfwhm));
                 }
 
                 // store the Vx-Vy pixel size
@@ -1712,6 +1735,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
                 Py_CLEAR(garray);
                 Py_CLEAR(warray);
                 Py_CLEAR(darray);
+                Py_CLEAR(dsqfwhm);
+                Py_CLEAR(dsqueeze);
                 Py_CLEAR(dfwhmz);
                 Py_CLEAR(dfwhmxy);
                 Py_CLEAR(dbias);
@@ -1744,6 +1769,8 @@ read_map(PyObject *map, float* images, std::vector<Nxyz>& nxyz,
     Py_XDECREF(warray);
     Py_XDECREF(darray);
     Py_XDECREF(ivz);
+    Py_CLEAR(dsqfwhm);
+    Py_CLEAR(dsqueeze);
     Py_CLEAR(dfwhmz);
     Py_CLEAR(dfwhmxy);
     Py_CLEAR(dbias);
@@ -2381,7 +2408,7 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
     float* image = new float[nipix];
     std::vector<Nxyz> nxyz;
     std::vector<DefOpt> def;
-    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz, squeeze, sqfwhm;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
     std::vector<Itype> itype;
@@ -2389,7 +2416,8 @@ doppler_comdat(PyObject *self, PyObject *args, PyObject *kwords)
 
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, itype,
-                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
+                 def, bias, fwhmxy, fwhmz, squeeze, sqfwhm,
+                 tzero, period, quad, vfine, sfac)){
         delete[] image;
         return NULL;
     }
@@ -2463,7 +2491,7 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
     float* output = new float[nipix];
     std::vector<Nxyz> nxyz;
     std::vector<DefOpt> def;
-    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz, squeeze, sqfwhm;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
     std::vector<Itype> itype;
@@ -2471,39 +2499,116 @@ doppler_comdef(PyObject *self, PyObject *args, PyObject *kwords)
 
     // read the Map
     if(!read_map(map, input, nxyz, vxy, vz, wavel, gamma, scale, itype,
-                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
+                 def, bias, fwhmxy, fwhmz, squeeze, sqfwhm,
+                 tzero, period, quad, vfine, sfac)){
         delete[] output;
         delete[] input;
         return NULL;
     }
 
     // set the pointers
-    float *iptr = input, *optr = output;
+    float *iptr=input, *optr=output;
 
     for(size_t nim=0; nim<nxyz.size(); nim++){
         size_t npix = nxyz[nim].ntot();
+
         if(def[nim] == 1){
             double ave = 0.;
-            for(size_t np=0; np<npix; np++)
-                ave += iptr[np];
+            for(size_t ip=0; ip<npix; ip++)
+                ave += iptr[ip];
             ave /= npix;
             ave *= bias[nim];
-            for(size_t np=0; np<npix; np++)
-                optr[np] = float(ave);
+            for(size_t ip=0; ip<npix; ip++)
+                optr[ip] = float(ave);
 
         }else if(def[nim] == 2 || def[nim] == 3){
+
+            // blurring parameters
             double fx = fwhmxy[nim]/vxy[nim];
             double fy = fwhmxy[nim]/vxy[nim];
             double fz = 0.;
+
             if(nxyz[nim].nz > 1)
                 fz = fwhmz[nim]/vz[nim];
-            gaussdef(iptr, nxyz[nim], fx, fy, fz, optr);
-            double bfac = bias[nim];
-            for(size_t np=0; np<npix; np++)
-                optr[np] *= bfac;
+
+            if(def[nim] == 3 && squeeze[nim] > 0.){
+
+                // get space
+                float* tptr = new float[npix];
+
+                // For GAUSS3D option, try to steer the default
+                // towards the mean along the vz axis. Do this by
+                // modifying the default to be squeeze*(gaussian in vz
+                // of same mean at each vx-vy as the original) +
+                // (1-squeeze)*original.
+
+                size_t nx = nxyz[nim].nx;
+                size_t ny = nxyz[nim].ny;
+                size_t nz = nxyz[nim].nz;
+                size_t nxy = nx*ny;
+                float sigma = sqfwhm[nim]/EFAC;
+
+                // loop over x-y. Non-optimal memory wise, but a small
+                // price to pay
+                size_t ixyp = 0;
+                for(size_t iy=0; iy<ny; iy++){
+                    for(size_t ix=0; ix<nx; ix++, ixyp++){
+
+                        // Compute the weighted mean vz. znorm = sum
+                        // along z-axis is also re-used later
+                        double vzmean = 0., znorm = 0.;
+                        float vslice = -vz[nim]*(nz-1)/2;
+
+                        for(size_t iz=0, ip=ixyp; iz<nz; iz++, ip+=nxy, vslice += vz[nim]){
+                            znorm += iptr[ip];
+                            vzmean += iptr[ip]*vslice;
+                        }
+                        vzmean /= znorm;
+
+                        // Now construct gaussian in vz ...
+                        double znorm2 = 0.;
+                        vslice = -vz[nim]*(nz-1)/2;
+
+                        for(size_t iz=0, ip=ixyp; iz<nz; iz++, ip+=nxy, vslice += vz[nim]){
+                            tptr[ip] = std::exp(-std::pow(vslice/sigma,2)/2.);
+                            znorm2 += tptr[ip];
+                        }
+
+                        // scale
+                        double sfac = znorm/znorm2*squeeze[nim];
+                        for(size_t iz=0, ip=ixyp; iz<nz; iz++, ip+=nxy)
+                            tptr[ip] *= sfac;
+                    }
+                }
+
+                // blurr, in vx-vy (but not vz)
+                float* ttptr = new float[npix];
+                gaussdef(tptr, nxyz[nim], fx, fy, 0., ttptr);
+                delete[] tptr;
+
+                // blurr the original over all dims
+                gaussdef(iptr, nxyz[nim], fx, fy, fz, optr);
+
+                // scale down the blurred original and add in the
+                // squeezed bit to get the "pulled" default
+                for(size_t ip=0; ip<npix; ip++)
+                    optr[ip] = (1-squeeze[nim])*optr[ip] + ttptr[ip];
+                delete[] ttptr;
+
+            }else{
+                // no squeeze case; don't need temporaries
+                gaussdef(iptr, nxyz[nim], fx, fy, fz, optr);
+            }
+
+            // Apply any bias
+            if(bias[nim] != 1.0){
+                for(size_t ip=0; ip<npix; ip++)
+                    optr[ip] *= bias[nim];
+            }
         }
-        iptr += nxyz[nim].ntot();
-        optr += nxyz[nim].ntot();
+        // next image
+        iptr += npix;
+        optr += npix;
     }
 
     // write modified image back into the map
@@ -2548,7 +2653,7 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
     float* image = new float[nipix];
     std::vector<Nxyz> nxyz;
     std::vector<DefOpt> def;
-    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz;
+    std::vector<double> vxy, vz, bias, fwhmxy, fwhmz, squeeze, sqfwhm;
     std::vector<std::vector<double> > wavel;
     std::vector<std::vector<float> > gamma, scale;
     std::vector<Itype> itype;
@@ -2556,7 +2661,8 @@ doppler_datcom(PyObject *self, PyObject *args, PyObject *kwords)
 
     // read the Map
     if(!read_map(map, image, nxyz, vxy, vz, wavel, gamma, scale, itype,
-                 def, bias, fwhmxy, fwhmz, tzero, period, quad, vfine, sfac)){
+                 def, bias, fwhmxy, fwhmz, squeeze, sqfwhm,
+		 tzero, period, quad, vfine, sfac)){
         delete[] image;
         return NULL;
     }
@@ -2665,8 +2771,8 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
                  Dopp::nxyz, Dopp::vxy, Dopp::vz,
                  Dopp::wavel, Dopp::gamma, Dopp::scale,
                  Dopp::itype, Dopp::def, Dopp::bias,
-                 Dopp::fwhmxy, Dopp::fwhmz, Dopp::tzero,
-                 Dopp::period, Dopp::quad, Dopp::vfine,
+                 Dopp::fwhmxy, Dopp::fwhmz, Dopp::squeeze, Dopp::sqfwhm,
+                 Dopp::tzero, Dopp::period, Dopp::quad, Dopp::vfine,
                  Dopp::sfac)){
         delete[] Mem::Gbl::st;
         return NULL;
@@ -2730,11 +2836,82 @@ doppler_memit(PyObject *self, PyObject *args, PyObject *kwords)
                     if(Dopp::nxyz[nim].nz > 1)
                         fwhmz = Dopp::fwhmz[nim]/Dopp::vz[nim];
 
-                    gaussdef(iptr, Dopp::nxyz[nim], fwhmx, fwhmy, fwhmz, optr);
+                    if(Dopp::def[nim] == GAUSS3D && Dopp::squeeze[nim] > 0.){
 
-                    double bfac = Dopp::bias[nim];
-                    for(size_t np=0; np<npix; np++)
-                        optr[np] *= bfac;
+                        // get space
+                        float* tptr = new float[npix];
+
+                        // For GAUSS3D option, try to steer the default
+                        // towards the mean along the vz axis. Do this by
+                        // modifying the default to be squeeze*(gaussian in vz
+                        // of same mean at each vx-vy as the original) +
+                        // (1-squeeze)*original.
+
+                        size_t nx = Dopp::nxyz[nim].nx;
+                        size_t ny = Dopp::nxyz[nim].ny;
+                        size_t nz = Dopp::nxyz[nim].nz;
+                        size_t nxy = nx*ny;
+                        float sigma = Dopp::sqfwhm[nim]/EFAC;
+
+                        // loop over x-y. Non-optimal memory wise, but a small
+                        // price to pay
+                        size_t ixyp = 0;
+                        for(size_t iy=0; iy<ny; iy++){
+                            for(size_t ix=0; ix<nx; ix++, ixyp++){
+
+                                // Compute the weighted mean vz. znorm = sum
+                                // along z-axis is also re-used later
+                                double vzmean = 0., znorm = 0.;
+                                float vslice = -Dopp::vz[nim]*(nz-1)/2;
+
+                                for(size_t iz=0, ip=ixyp; iz<nz;
+                                    iz++, ip+=nxy, vslice += Dopp::vz[nim]){
+                                    znorm += iptr[ip];
+                                    vzmean += iptr[ip]*vslice;
+                                }
+                                vzmean /= znorm;
+
+                                // Now construct gaussian in vz ...
+                                double znorm2 = 0.;
+                                vslice = -Dopp::vz[nim]*(nz-1)/2;
+
+                                for(size_t iz=0, ip=ixyp; iz<nz;
+                                    iz++, ip+=nxy, vslice += Dopp::vz[nim]){
+                                    tptr[ip] = std::exp(-std::pow(vslice/sigma,2)/2.);
+                                    znorm2 += tptr[ip];
+                                }
+
+                                // scale
+                                double sfac = znorm/znorm2*Dopp::squeeze[nim];
+                                for(size_t iz=0, ip=ixyp; iz<nz; iz++, ip+=nxy)
+                                    tptr[ip] *= sfac;
+                            }
+                        }
+
+                        // blurr, in vx-vy (but not vz)
+                        float* ttptr = new float[npix];
+                        gaussdef(tptr, Dopp::nxyz[nim], fwhmx, fwhmy, 0., ttptr);
+                        delete[] tptr;
+
+                        // blurr the original over all dims
+                        gaussdef(iptr, Dopp::nxyz[nim], fwhmx, fwhmy, fwhmz, optr);
+
+                        // scale down the blurred original and add in the
+                        // squeezed bit to get the "pulled" default
+                        for(size_t ip=0; ip<npix; ip++)
+                            optr[ip] = (1-Dopp::squeeze[nim])*optr[ip] + ttptr[ip];
+                        delete[] ttptr;
+
+                    }else{
+                        // no squeeze case; don't need temporaries
+                        gaussdef(iptr, Dopp::nxyz[nim], fwhmx, fwhmy, fwhmz, optr);
+                    }
+
+                    // Apply any bias
+                    if(Dopp::bias[nim] != 1.0){
+                        for(size_t ip=0; ip<npix; ip++)
+                            optr[ip] *= Dopp::bias[nim];
+                    }
                 }
                 iptr += Dopp::nxyz[nim].ntot();
                 optr += Dopp::nxyz[nim].ntot();
