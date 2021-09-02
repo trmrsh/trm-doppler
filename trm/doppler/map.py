@@ -57,15 +57,21 @@ class Default:
 
           fwhmz : FWHM blurr in Vz
 
+          squeeze : factor by which to attempt to squeeze the image
+
+          sqfwhm : the FWHM of the squeezed part
+
         See also Default.uniform, Default.gauss2D, Default.gauss3d
         """
         self.option = option
         self.bias   = bias
         if option == Default.GAUSS2D and len(args) == 1:
             self.fwhmxy = args[0]
-        elif option == Default.GAUSS3D and len(args) == 2:
+        elif option == Default.GAUSS3D and len(args) == 4:
             self.fwhmxy = args[0]
-            self.fwhmz  = args[1]
+            self.fwhmz = args[1]
+            self.squeeze = args[2]
+            self.sqfwhm = args[3]
         elif option != Default.UNIFORM:
             raise DopplerError('Default.__init__: invalid option'
                                ' and/or wrong number of arguments.')
@@ -81,9 +87,9 @@ class Default:
         return cls(Default.GAUSS2D, bias, fwhmxy)
 
     @classmethod
-    def gauss3d(cls, bias, fwhmxy, fwhmz):
+    def gauss3d(cls, bias, fwhmxy, fwhmz, squeeze, sqfwhm):
         "Returns a gaussian Default object for a 3D image"
-        return cls(Default.GAUSS3D, bias, fwhmxy, fwhmz)
+        return cls(Default.GAUSS3D, bias, fwhmxy, fwhmz, squeeze, sqfwhm)
 
     def __repr__(self):
         """
@@ -94,10 +100,11 @@ class Default:
         if self.option == Default.UNIFORM:
             return rep + ')'
         elif self.option == Default.GAUSS2D:
-            return rep + ', fwhmxy=' + repr(self.fwhmxy) + ')'
+            return rep + f', fwhmxy={self.fwhmxy})'
         elif self.option == Default.GAUSS3D:
-            return rep + ', fwhmxy=' + repr(self.fwhmxy) + \
-                                     ', fwhmz=' + repr(self.fwhmz) + ')'
+            return rep + \
+                f', fwhmxy={self.fwhmxy}, fwhmz={self.fwhmz}, ' + \
+                f'squeeze={self.squeeze}, sqfwhm={self.sqfwhm})'
 
 # Image types. P = positive, N = negative
 # UNIT means    x 1 at all phases
@@ -401,6 +408,8 @@ class Image:
         elif self.default.option == Default.GAUSS3D:
             head['FWHMXY']  = (self.default.fwhmxy, 'Vx-Vy blurring, km/s')
             head['FWHMZ']   = (self.default.fwhmz, 'Vz blurring, km/s')
+            head['SQUEEZE']   = (self.default.squeeze, 'Squeeze factor')
+            head['SQFWHM']   = (self.default.sqfwhm, 'FWHM for squeeze, km/s')
 
         head['GROUP']   = (self.group, 'Image group number (0=no group)')
         head['PGROUP']  = (self.pgroup, 'Plot group number (0=no group)')
@@ -511,8 +520,13 @@ class Image:
             if 'FWHMXY' not in head or 'FWHMZ' not in head:
                 raise DopplerError('Image.fromHDU: could not find '
                                    'FWHMXY and/or FWHMZ')
-            default = Default.gauss3d(head['BIAS'], head['FWHMXY'],
-                                      head['FWHMZ'])
+            # Backwards compatibility
+            squeeze = head.get('SQUEEZE',0.)
+            sqfwhm = head.get('SQFWHM',0.)
+            default = Default.gauss3d(
+                head['BIAS'], head['FWHMXY'], head['FWHMZ'],
+                squeeze, sqfwhm
+            )
         else:
             raise DopplerError(
                 'Image.fromHDU: unrecognised default option = ' + head['DEFAULT']
